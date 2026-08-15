@@ -250,6 +250,12 @@ export function liveStatus(
   return null
 }
 
+/** @returns latest round index receiving live content, or null for a standalone live card. */
+export function liveRoundIndex(roundCount: number, live: boolean): number | null {
+  if (!live || roundCount === 0) return null
+  return roundCount - 1
+}
+
 /** @param calls - running calls. @returns longest elapsed seconds, or null. */
 export function runningElapsedSeconds(calls: readonly TrailRunningCallLike[]): number | null {
   let longest: number | null = null

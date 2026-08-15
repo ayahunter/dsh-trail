@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   argPreview, buildRounds, firstLine, firstUserText, fmtDuration, fmtTokens, liveStatus,
-  nodeText, roundMeta, textOfContent, truncate, usageSummary,
+  liveRoundIndex, nodeText, roundMeta, textOfContent, truncate, usageSummary,
 } from '../src/client/model'
 import type { TrailAssistantBlockLike, TrailNode } from '../src/client/model'
 import { toolLabel } from '../src/client/tool-info'
@@ -164,6 +164,17 @@ describe('liveStatus', () => {
 
   it('is null when nothing runs', () => {
     expect(liveStatus(null, [])).toBeNull()
+  })
+})
+
+describe('liveRoundIndex', () => {
+  it('merges live content into the latest existing round', () => {
+    expect(liveRoundIndex(2, true)).toBe(1)
+  })
+
+  it('keeps a standalone live card when no round exists', () => {
+    expect(liveRoundIndex(0, true)).toBeNull()
+    expect(liveRoundIndex(2, false)).toBeNull()
   })
 })
 
