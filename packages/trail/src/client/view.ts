@@ -3,11 +3,11 @@ import { createElement, useState } from 'react'
 import type { ReactNode } from 'react'
 import { toolLabel } from './tool-info'
 import {
-  buildRounds, firstUserText, fmtDuration, fmtTokens, liveStatus, roundMeta,
-  roundText, textOfContent, truncate, usageSummary,
+  argPreview, buildRounds, firstLine, firstUserText, fmtDuration, fmtTokens, liveStatus,
+  roundMeta, roundText, textOfContent, truncate, usageSummary,
 } from './model'
 import type {
-  TrailAssistantBlockLike, TrailNode, TrailSnapshotLike, TrailTurnTiming,
+  TrailAssistantBlockLike, TrailNode, TrailRunningCallLike, TrailSnapshotLike, TrailTurnTiming,
 } from './model'
 
 /** Props the conversation view slot hands to this component. */
@@ -17,7 +17,12 @@ export interface TrailViewProps {
 }
 
 const EMPTY_NODES: readonly TrailNode[] = []
-const EMPTY_CALLS: readonly { name?: string }[] = []
+const EMPTY_CALLS: readonly TrailRunningCallLike[] = []
+
+const LEGEND_ITEMS = [
+  '👤 你（用户）', '》 向 AI 回复', '🧠 AI 思考', '🔧 工具调用',
+  '✓ 成功结果', '✗ 错误结果', 'ℹ️ 系统事件',
+] as const
 
 function roundDuration(turnTimings: ReadonlyMap<number, TrailTurnTiming> | undefined, turn: number | null): number | null {
   if (turn === null || turnTimings === undefined) return null
@@ -33,7 +38,7 @@ function renderNode(node: TrailNode, index: number, expanded: ReadonlySet<string
     const open = expanded.has(baseKey)
     const long = full.length > 200
     return createElement('div', { key: baseKey, className: 'tf-row tf-user' },
-      '💬 你：',
+      '👤 你：',
       createElement('span', null, open || !long ? full : truncate(full, 200)),
       long ? createElement('button', { type: 'button', className: 'tf-btn', onClick: () => { toggle(baseKey) } }, open ? '收起' : '展开') : null)
   }
@@ -49,7 +54,7 @@ function renderNode(node: TrailNode, index: number, expanded: ReadonlySet<string
         const open = expanded.has(bKey)
         const long = full.length > 300
         rows.push(createElement('div', { key: bKey, className: 'tf-row tf-reply' },
-          '🤖 AI 回复：',
+          '》 AI 回复：',
           createElement('span', null, open || !long ? full : truncate(full, 300)),
           long ? createElement('button', { type: 'button', className: 'tf-btn', onClick: () => { toggle(bKey) } }, open ? '收起' : '展开') : null))
       } else if (block.kind === 'reasoning') {
@@ -57,21 +62,21 @@ function renderNode(node: TrailNode, index: number, expanded: ReadonlySet<string
         if (full.trim() === '') continue
         const open = expanded.has(bKey)
         rows.push(createElement('div', { key: bKey, className: 'tf-row tf-think' },
-          '🧠 思考：',
+          '🧠 AI 思考：',
           createElement('span', null, open ? full : truncate(full, 60)),
           createElement('button', { type: 'button', className: 'tf-btn', onClick: () => { toggle(bKey) } }, open ? '收起' : '展开')))
       } else if (block.kind === 'tool-call') {
         const label = toolLabel(block.name)
+        const preview = argPreview(block.name, block.argsRaw)
         const open = expanded.has(bKey)
         rows.push(createElement('div', { key: bKey, className: 'tf-row tf-tool' },
-          `🔧 ${label[0]}`,
-          label[1] !== '' ? createElement('span', { className: 'tf-meta' }, ` · ${label[1]}`) : null,
+          `🔧 ${label[0]}${preview !== '' ? ` ${preview}` : ''}：${label[1]}`,
           createElement('button', { type: 'button', className: 'tf-btn', onClick: () => { toggle(bKey) } }, open ? '收起详情' : '详情'),
           open ? createElement('pre', { className: 'tf-detail' }, typeof block.argsRaw === 'string' && block.argsRaw !== '' ? block.argsRaw : '（无参数）') : null))
       } else if (block.kind === 'image') {
         rows.push(createElement('div', { key: bKey, className: 'tf-row' }, '🖼 AI 生成了一张图片'))
       } else {
-        rows.push(createElement('div', { key: bKey, className: 'tf-row' }, '· 其他内容'))
+        rows.push(createElement('div', { key: bKey, className: 'tf-row' }, 'ℹ️ 系统事件：其他内容'))
       }
     }
     if (node.interrupted) rows.push(createElement('div', { key: `${baseKey}_stop`, className: 'tf-row tf-meta' }, '已停止'))
@@ -85,19 +90,28 @@ function renderNode(node: TrailNode, index: number, expanded: ReadonlySet<string
   }
   if (node.kind === 'tool-result') {
     const name = node.call !== null && typeof node.call === 'object' && typeof node.call.name === 'string'
-      ? toolLabel(node.call.name)[0]
-      : '工具调用'
+      ? node.call.name
+      : undefined
+    const label = toolLabel(name)
     const open = expanded.has(baseKey)
-    const preview = truncate(textOfContent(node.content), 120)
+    const preview = textOfContent(node.content)
+    const headline = firstLine(preview)
+    const callPreview = node.call !== null && typeof node.call === 'object' && typeof node.call.argsRaw === 'string'
+      ? argPreview(name, node.call.argsRaw)
+      : ''
     const duration = typeof node.time === 'number' && typeof node.callTime === 'number'
       ? fmtDuration(node.time - node.callTime)
       : null
-    const errText = node.isError
-      ? (node.error !== null && node.error !== undefined ? `出错（${(node.error.name || node.error.code) || '未知错误'}）` : '出错')
-      : '完成'
     const children: ReactNode[] = []
-    children.push(`${node.isError ? '✗' : '✓'} ${name} ${errText}`)
-    if (node.isError !== true && preview !== '') children.push(createElement('span', { className: 'tf-meta' }, ` · ${truncate(preview, 40)}`))
+    if (node.isError === true) {
+      const errName = node.error !== null && node.error !== undefined
+        ? ((node.error.name || node.error.code) ?? '未知错误')
+        : '未知错误'
+      children.push(`✗ ${label[0]} 出错：${String(errName)}`)
+    } else {
+      children.push(`✓ ${label[0]} 完成${callPreview !== '' ? `：${callPreview}` : ''}`)
+      if (headline !== null) children.push(createElement('span', { className: 'tf-meta' }, ` · 预览第一行：${headline}`))
+    }
     if (duration !== null) children.push(createElement('span', { className: 'tf-meta' }, ` · 耗时 ${duration}`))
     children.push(createElement('button', { type: 'button', className: 'tf-btn', onClick: () => { toggle(baseKey) } }, open ? '收起详情' : '详情'))
     if (open) {
@@ -110,13 +124,13 @@ function renderNode(node: TrailNode, index: number, expanded: ReadonlySet<string
     }
     return createElement('div', { key: baseKey, className: 'tf-row tf-result' }, children)
   }
-  if (node.kind === 'context') return createElement('div', { key: baseKey, className: 'tf-row' }, 'ℹ️ 系统注入了上下文信息')
+  if (node.kind === 'context') return createElement('div', { key: baseKey, className: 'tf-row' }, 'ℹ️ 系统事件：注入了上下文信息')
   if (node.kind === 'compaction') {
     const open = expanded.has(baseKey)
     const bits: string[] = []
     if (typeof node.shadowedItemCount === 'number') bits.push(`${node.shadowedItemCount} 条记录`)
     if (typeof node.shadowedTokenCount === 'number') bits.push(`${node.shadowedTokenCount} token`)
-    const children: ReactNode[] = ['🧹 历史压缩：把之前的对话压缩成摘要，节省 token']
+    const children: ReactNode[] = ['ℹ️ 系统事件：历史压缩，把之前的对话压缩成摘要，节省 token']
     if (bits.length > 0) children.push(createElement('span', { className: 'tf-meta' }, `（${bits.join('、')}）`))
     if (node.summary !== null && node.summary !== undefined) {
       children.push(createElement('button', { type: 'button', className: 'tf-btn', onClick: () => { toggle(baseKey) } }, open ? '收起摘要' : '摘要'))
@@ -126,14 +140,14 @@ function renderNode(node: TrailNode, index: number, expanded: ReadonlySet<string
     }
     return createElement('div', { key: baseKey, className: 'tf-row' }, children)
   }
-  if (node.kind === 'steering') return createElement('div', { key: baseKey, className: 'tf-row' }, `✍️ 你补充说：${truncate(textOfContent(node.content), 200)}`)
+  if (node.kind === 'steering') return createElement('div', { key: baseKey, className: 'tf-row' }, `👤 你补充说：${truncate(textOfContent(node.content), 200)}`)
   if (node.kind === 'turn-error') {
     return createElement('div', { key: baseKey, className: 'tf-row tf-error' },
-      `❌ 本轮出错：${node.message ?? '未知错误'}${typeof node.code === 'string' && node.code !== '' ? `（${node.code}）` : ''}`)
+      `✗ 本轮出错：${node.message ?? '未知错误'}${typeof node.code === 'string' && node.code !== '' ? `（${node.code}）` : ''}`)
   }
-  if (node.kind === 'turn-max-tokens') return createElement('div', { key: baseKey, className: 'tf-row' }, '⏹ 回复达到长度上限，被截断')
-  if (node.kind === 'model-retry') return createElement('div', { key: baseKey, className: 'tf-row' }, '🔁 模型请求失败，已自动重试')
-  return createElement('div', { key: baseKey, className: 'tf-row' }, `· 其他事件（${String(node.kind)}）`)
+  if (node.kind === 'turn-max-tokens') return createElement('div', { key: baseKey, className: 'tf-row' }, 'ℹ️ 系统事件：回复达到长度上限，被截断')
+  if (node.kind === 'model-retry') return createElement('div', { key: baseKey, className: 'tf-row' }, 'ℹ️ 系统事件：模型请求失败，已自动重试')
+  return createElement('div', { key: baseKey, className: 'tf-row' }, `ℹ️ 系统事件：其他（${String(node.kind)}）`)
 }
 
 function renderRound(
@@ -146,11 +160,17 @@ function renderRound(
   const meta = roundMeta(round)
   const duration = roundDuration(turnTimings, round.turn)
   const userText = firstUserText(round)
-  const head: ReactNode[] = [createElement('span', { key: 't', className: 'tf-turn-title' }, round.turn === null ? '开始' : `第 ${round.turn} 轮`)]
-  if (userText !== null) head.push(createElement('span', { key: 'q', className: 'tf-turn-question' }, `你问：${truncate(userText, 40)}`))
-  if (duration !== null) head.push(createElement('span', { key: 'd', className: 'tf-meta' }, fmtDuration(duration)))
-  if (meta.model !== null) head.push(createElement('span', { key: 'm', className: 'tf-meta' }, meta.model))
-  if (meta.tokens !== null) head.push(createElement('span', { key: 'k', className: 'tf-meta' }, `${fmtTokens(meta.tokens)} token`))
+  const metaBits: string[] = []
+  if (duration !== null) metaBits.push(fmtDuration(duration))
+  if (meta.model !== null) metaBits.push(meta.model)
+  if (meta.tokens !== null) metaBits.push(`${fmtTokens(meta.tokens)} token`)
+  const head: ReactNode[] = [
+    createElement('span', { key: 't', className: 'tf-turn-title' }, round.turn === null ? '开始' : `第 ${round.turn} 轮`),
+    userText !== null
+      ? createElement('span', { key: 'q', className: 'tf-turn-question' }, `· 你问：${truncate(userText, 40)}`)
+      : null,
+  ]
+  if (metaBits.length > 0) head.push(createElement('span', { key: 'm', className: 'tf-meta' }, metaBits.join(' · ')))
   const rows: ReactNode[] = round.items.map((node, i) => renderNode(node, i, expanded, toggle))
   return createElement('div', { key: `r${index}`, className: 'tf-round' },
     createElement('div', { className: 'tf-round-head' }, head),
@@ -159,7 +179,7 @@ function renderRound(
 
 function renderLive(
   partial: TrailSnapshotLike['partial'],
-  runningCalls: readonly { name?: string }[],
+  runningCalls: readonly TrailRunningCallLike[],
   status: ReturnType<typeof liveStatus>,
 ): ReactNode {
   const rows: ReactNode[] = []
@@ -167,20 +187,28 @@ function renderLive(
     for (let i = 0; i < partial.blocks.length; i++) {
       const block: TrailAssistantBlockLike = partial.blocks[i]
       if (block.kind === 'text' && (block.text ?? '').trim() !== '') {
-        rows.push(createElement('div', { key: `t${i}`, className: 'tf-row' }, `🤖 正在回复：${truncate(block.text ?? '', 300)}`))
+        rows.push(createElement('div', { key: `t${i}`, className: 'tf-row' }, `》 正在回复：${truncate(block.text ?? '', 300)}`))
       } else if (block.kind === 'reasoning') {
-        rows.push(createElement('div', { key: `t${i}`, className: 'tf-row' }, '🧠 思考中…'))
+        rows.push(createElement('div', { key: `t${i}`, className: 'tf-row tf-think' }, `🧠 AI 思考：${truncate(block.text ?? '', 60)}`))
       } else if (block.kind === 'tool-call') {
-        rows.push(createElement('div', { key: `t${i}`, className: 'tf-row' }, `🔧 ${toolLabel(block.name)[0]}`))
+        const label = toolLabel(block.name)
+        const preview = argPreview(block.name, block.argsRaw)
+        rows.push(createElement('div', { key: `t${i}`, className: 'tf-row tf-tool' }, `🔧 ${label[0]}${preview !== '' ? ` ${preview}` : ''}：${label[1]}`))
       }
     }
   }
   for (let i = 0; i < runningCalls.length; i++) {
-    rows.push(createElement('div', { key: `c${i}`, className: 'tf-row' }, `🔧 ${toolLabel(runningCalls[i].name)[0]} 运行中…`))
+    const call = runningCalls[i]
+    const label = toolLabel(call.name)
+    const elapsed = typeof call.time === 'number'
+      ? Math.max(0, Math.round((Date.now() - call.time) / 1000))
+      : null
+    rows.push(createElement('div', { key: `c${i}`, className: 'tf-row tf-tool' },
+      `🔧 ${label[0]} 运行中${elapsed !== null ? ` · 已运行 ${elapsed}s` : ''}`))
   }
   return createElement('div', { key: 'live', className: 'tf-round tf-live' },
     createElement('div', { className: 'tf-round-head' },
-      '🔄 正在进行的回合',
+      '🔄 正在进行的回合 · 正在运行',
       status === null
         ? null
         : createElement('span', { className: 'tf-badge' }, status[0] + (status[1] !== '' ? `：${status[1]}` : ''))),
@@ -229,15 +257,16 @@ export function TrajectoryView(props: TrailViewProps): ReactNode {
     createElement('input', {
       type: 'search',
       className: 'tf-search',
-      placeholder: '搜索轨迹（问题、回复、工具…）',
+      placeholder: '搜索轨迹…',
       value: query,
       onChange: (event) => { setQuery(event.target.value) },
       'aria-label': '搜索轨迹',
     }),
-    createElement('button', { type: 'button', className: 'tf-btn', onClick: () => { setLegendOpen(!legendOpen) } }, legendOpen ? '图例 ▾' : '图例 ▸')))
+    createElement('button', { type: 'button', className: 'tf-btn', onClick: () => { setLegendOpen(!legendOpen) } },
+      legendOpen ? '隐藏图例 ▾' : '图例 ▸')))
   if (legendOpen) {
     children.push(createElement('div', { key: 'legend', className: 'tf-legend' },
-      '图例：💬 你 · 🤖 AI 回复 · 🧠 思考 · 🔧 工具 · ✓ 成功 / ✗ 失败 · ℹ️ 上下文 · 🧹 压缩 · ❌ 出错 · 🔁 重试'))
+      LEGEND_ITEMS.map(item => createElement('span', { key: item, className: 'tf-legend-item' }, item))))
   }
 
   if (openState === 'loading') {
@@ -246,7 +275,8 @@ export function TrajectoryView(props: TrailViewProps): ReactNode {
     children.push(createElement('div', { key: 'error', className: 'tf-loading' }, '记录加载失败'))
   } else if (rounds.length === 0 && !live) {
     children.push(createElement('div', { key: 'empty', className: 'tf-empty' },
-      '还没有轨迹。给 AI 发一条消息，这里就会按时间记录完整的互动过程：你问了什么、AI 怎么思考、调用了哪些工具、结果如何。'))
+      createElement('div', { className: 'tf-empty-title' }, '还没有轨迹。'),
+      createElement('div', null, '给 AI 发一条消息，这里会记录完整的互动过程。')))
   } else {
     for (let i = 0; i < visibleRounds.length; i++) {
       children.push(renderRound(visibleRounds[i], i, turnTimings, expanded, toggle))

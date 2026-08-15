@@ -39,7 +39,7 @@ export interface TrailNode {
   usage?: TrailUsageLike
   provenance?: { model?: unknown }
   callTime?: number | null
-  call?: { name?: unknown } | null
+  call?: { name?: unknown; argsRaw?: unknown } | null
   isError?: boolean
   error?: { name?: unknown; code?: unknown } | null
   summary?: string | null
@@ -62,12 +62,18 @@ export interface TrailTurnTiming {
   endTime?: number
 }
 
+/** One running tool call as far as the trail view cares. */
+export interface TrailRunningCallLike {
+  name?: string
+  time?: number
+}
+
 /** Top-level conversation snapshot fields the view reads. */
 export interface TrailSnapshotLike {
   nodes?: readonly TrailNode[]
   turnTimings?: ReadonlyMap<number, TrailTurnTiming>
   partial?: { blocks?: readonly TrailAssistantBlockLike[] } | null
-  runningCalls?: readonly { name?: string }[]
+  runningCalls?: readonly TrailRunningCallLike[]
   hasMore?: boolean
   loadingOlder?: boolean
   openState?: string
@@ -220,11 +226,12 @@ export type TrailLiveStatus = readonly [label: string, detail: string] | null
  */
 export function liveStatus(
   partial: TrailSnapshotLike['partial'],
-  runningCalls: readonly { name?: string }[],
+  runningCalls: readonly TrailRunningCallLike[],
 ): TrailLiveStatus {
   if (runningCalls.length > 0) {
     const names = runningCalls.map(call => toolLabel(call.name)[0]).join('、')
-    return ['正在运行工具', names]
+    const elapsed = runningElapsedSeconds(runningCalls)
+    return ['正在运行工具', elapsed === null ? names : `${names} · ${elapsed}s`]
   }
   if (partial !== null && partial !== undefined && partial.blocks !== undefined) {
     let hasTool = false
@@ -237,8 +244,94 @@ export function liveStatus(
     }
     if (hasTool) return ['正在调用工具', '']
     if (hasReason && !hasText) return ['正在思考', '']
-    if (hasText) return ['正在回复', '']
+    if (hasText) return ['生成中…', '']
     return ['正在工作', '']
   }
   return null
+}
+
+/** @param calls - running calls. @returns longest elapsed seconds, or null. */
+export function runningElapsedSeconds(calls: readonly TrailRunningCallLike[]): number | null {
+  let longest: number | null = null
+  const now = Date.now()
+  for (const call of calls) {
+    if (typeof call.time !== 'number') continue
+    const elapsed = Math.max(0, Math.round((now - call.time) / 1000))
+    if (longest === null || elapsed > longest) longest = elapsed
+  }
+  return longest
+}
+
+/** Argument keys worth previewing per tool, in preference order. */
+const ARG_KEYS: Readonly<Record<string, readonly string[]>> = {
+  read: ['file_path', 'path'],
+  write: ['file_path', 'path'],
+  edit: ['file_path', 'path'],
+  read_image: ['file_path', 'path'],
+  glob: ['pattern', 'path'],
+  grep: ['pattern', 'path', 'include'],
+  bash: ['command'],
+  pwsh: ['command'],
+  web_search: ['query'],
+  web_fetch: ['url', 'urls'],
+  skill: ['name'],
+  todo_write: ['content'],
+  ask_user_question: ['question', 'questions'],
+  subagent: ['prompt', 'description'],
+  subagent_fork: ['prompt', 'description'],
+  send_message: ['message'],
+  workflow: ['objective'],
+  create_goal: ['objective'],
+  update_goal: ['objective'],
+  ralph: ['objective'],
+  interrupt_agent: ['agent_id'],
+  job_output: ['job_id'],
+  job_kill: ['job_id'],
+  list_agents: ['scope'],
+  cordis_define: ['pluginId', 'idPrefix'],
+  cordis_run: ['pluginId'],
+  cordis_stop: ['pluginId'],
+  cordis_undefine: ['pluginId'],
+  cordis_inspect_self: ['pluginId'],
+}
+
+function firstString(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim() !== '') return value.trim()
+  if (Array.isArray(value) && typeof value[0] === 'string') return value[0]
+  return null
+}
+
+/**
+ * Extract a short argument preview from a raw tool-arguments JSON string:
+ * per-tool preferred keys first, then any first string value, then the raw
+ * text itself.
+ * @param name - tool name.
+ * @param argsRaw - raw arguments JSON.
+ */
+export function argPreview(name: string | undefined, argsRaw: string | undefined): string {
+  if (typeof argsRaw !== 'string' || argsRaw.trim() === '') return ''
+  let parsed: unknown = null
+  try {
+    parsed = JSON.parse(argsRaw)
+  } catch {
+    parsed = null
+  }
+  if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    const keys = name === undefined ? [] : ARG_KEYS[name] ?? []
+    for (const key of keys) {
+      const found = firstString((parsed as Record<string, unknown>)[key])
+      if (found !== null) return truncate(found, 60)
+    }
+    for (const key of Object.keys(parsed)) {
+      const found = firstString((parsed as Record<string, unknown>)[key])
+      if (found !== null) return truncate(found, 60)
+    }
+  }
+  return truncate(argsRaw, 60)
+}
+
+/** @param text - result text. @returns first non-empty line, truncated. */
+export function firstLine(text: string): string | null {
+  const line = text.split('\n').map(part => part.trim()).find(part => part !== '')
+  return line === undefined ? null : truncate(line, 60)
 }

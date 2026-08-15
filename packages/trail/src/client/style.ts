@@ -7,7 +7,8 @@ export const TRAIL_CSS = `
 .tf-btn { padding: 2px 8px; border: 1px solid color-mix(in srgb, currentColor 25%, transparent); border-radius: 8px; background: transparent; color: inherit; cursor: pointer; font-size: 11px; line-height: 1.6; flex: none; }
 .tf-btn:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
 .tf-btn:disabled { opacity: .5; cursor: default; }
-.tf-legend { padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, currentColor 6%, transparent); font-size: 12px; }
+.tf-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, currentColor 6%, transparent); font-size: 12px; }
+.tf-legend-item { white-space: nowrap; }
 .tf-round { border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 .tf-live { border-style: dashed; }
 .tf-round-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
@@ -20,4 +21,5 @@ export const TRAIL_CSS = `
 .tf-detail { margin: 4px 0 0; padding: 6px 8px; border-radius: 6px; background: color-mix(in srgb, currentColor 6%, transparent); font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 240px; overflow: auto; }
 .tf-badge { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid color-mix(in srgb, currentColor 30%, transparent); }
 .tf-loading, .tf-empty { padding: 28px 16px; text-align: center; opacity: .7; }
+.tf-empty-title { font-weight: 600; }
 `

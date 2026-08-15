@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  buildRounds, firstUserText, fmtDuration, fmtTokens, liveStatus, nodeText, roundMeta,
-  textOfContent, truncate, usageSummary,
+  argPreview, buildRounds, firstLine, firstUserText, fmtDuration, fmtTokens, liveStatus,
+  nodeText, roundMeta, textOfContent, truncate, usageSummary,
 } from '../src/client/model'
 import type { TrailAssistantBlockLike, TrailNode } from '../src/client/model'
 import { toolLabel } from '../src/client/tool-info'
@@ -158,7 +158,7 @@ describe('liveStatus', () => {
   it('derives phase from partial blocks', () => {
     expect(liveStatus({ blocks: [{ kind: 'tool-call', name: 'grep', argsRaw: '{}' }] }, [])).toEqual(['正在调用工具', ''])
     expect(liveStatus({ blocks: [{ kind: 'reasoning', text: '想' }] }, [])).toEqual(['正在思考', ''])
-    expect(liveStatus({ blocks: [{ kind: 'text', text: '写' }] }, [])).toEqual(['正在回复', ''])
+    expect(liveStatus({ blocks: [{ kind: 'text', text: '写' }] }, [])).toEqual(['生成中…', ''])
     expect(liveStatus({ blocks: [] }, [])).toEqual(['正在工作', ''])
   })
 
@@ -178,5 +178,33 @@ describe('textOfContent', () => {
 
   it('handles undefined content', () => {
     expect(textOfContent(undefined)).toBe('')
+  })
+})
+
+describe('argPreview', () => {
+  it('prefers the tool-specific key', () => {
+    expect(argPreview('read', JSON.stringify({ file_path: 'docs/design.md', offset: 1 }))).toBe('docs/design.md')
+    expect(argPreview('bash', JSON.stringify({ command: 'git status' }))).toBe('git status')
+    expect(argPreview('web_search', JSON.stringify({ query: 'deepseek harness' }))).toBe('deepseek harness')
+  })
+
+  it('falls back to the first string value then the raw text', () => {
+    expect(argPreview('made-up', JSON.stringify({ whatever: 'hello' }))).toBe('hello')
+    expect(argPreview('read', 'not json at all')).toBe('not json at all')
+  })
+
+  it('handles empty input', () => {
+    expect(argPreview('read', '')).toBe('')
+    expect(argPreview(undefined, undefined)).toBe('')
+  })
+})
+
+describe('firstLine', () => {
+  it('returns the first non-empty line truncated', () => {
+    expect(firstLine('\n\n# 项目设计文档\n正文')).toBe('# 项目设计文档')
+  })
+
+  it('returns null for empty text', () => {
+    expect(firstLine('  \n ')).toBeNull()
   })
 })
