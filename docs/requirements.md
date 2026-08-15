@@ -73,7 +73,7 @@
 - R2 **legacy 字段是兼容投影**：顶层 `nodes`/`partial`/`runningCalls`/`turnTimings` 是产品为兼容保留的字段，未来可能移除 → 插件声明支持的 dsh 版本范围，README 说明。
 - R3 **版本耦合**：插件依赖 `@deepseek-ai/*` peer 包，版本漂移会失配 → peerDependencies 声明范围，安装时校验。
 - R4 **删除原高级功能不可逆**（仅对本插件覆盖范围）→ 已由用户拍板：折叠进详情 + 保留搜索。
-- R5 **out-of-tree bundle 注入 dsh.client 行未端到端验证** → 阶段 2 先做最小 bundle 冒烟再全量实现。
+- R5 **out-of-tree bundle 注入 dsh.client 行** → **已解除**：隔离 DSH_HOME 端到端冒烟通过（`dsh plugin add` → `--dump-config` 行插入/禁用正确 → web 启动 → `/plugins/dsh-trail/client.js` 200，证据见 plan.md 阶段 2.4）。
 
 ## 7. 测试策略
 

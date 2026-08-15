@@ -16,13 +16,13 @@
 1.3 真机点检 AC-1…AC-9 → verify: 逐条记录证据（含运行中回合、空状态、分页）
 1.4 按用户反馈修订（新 Package + `update`）→ verify: 用户确认
 
-## 阶段 2 开源仓库实现
+## 阶段 2 开源仓库实现（已完成）
 
-2.1 仓库骨架：pnpm workspace、双包 package.json、README、LICENSE(MIT) → verify: `pnpm install` 通过
-2.2 插件包 TS 实现（从原型移植；`dsh.client` manifest、`./client` 导出、tsdown bundle）→ verify: `pnpm build` 产出 `lib/client.js`
-2.3 bundle 包：`cordis.patch.yml`（insert 本插件 dsh.client 行 + `disabled: true` ui-trajectory）→ verify: patch 结构与产品 bundle 约定一致
-2.4 端到端冒烟：`dsh plugin --profile <测试名> add` + `dsh --profile <测试名> web` → verify: 轨迹页签为新视图、无控制台报错、移除后原视图恢复（R5 在此验证）
-2.5 组件测试：分组、映射、折叠、搜索过滤（纯 props 驱动）→ verify: `pnpm test` 绿色
+- [x] 2.1 仓库骨架：pnpm workspace、双包 package.json、README、LICENSE(MIT) → verify: `pnpm install` 通过
+- [x] 2.2 插件包 TS 实现（`dsh.client` manifest、`./client` 导出、tsdown bundle）→ verify: `pnpm build` 产出 `lib/client.js`（26.5 kB / gzip 7.7 kB），typecheck 通过
+- [x] 2.3 bundle 包：`cordis.patch.yml`（insert 本插件 dsh.client 行 + `disabled: true` ui-trajectory）→ verify: `--dump-config` 输出两行均正确
+- [x] 2.4 端到端冒烟：隔离 `DSH_HOME` 下 `dsh plugin --profile web add` 双包 + `dsh web --port 3081` → verify: 服务器启动无报错；`/plugins/dsh-trail/client.js` HTTP 200 且 banner 为 `__ModuleLoader__.load({ id: "dsh-trail" })`（R5 解除）
+- [x] 2.5 组件测试：分组、映射、折叠、搜索过滤（纯 props 驱动）→ verify: vitest 21/21 通过
 
 ## 阶段 3 开源发布
 

@@ -1,27 +1,45 @@
 # dsh-trail
 
-一个 DeepSeek Harness Web 的 out-of-tree 插件：把「轨迹」页签替换为**新手友好**的故事线视图。
+An out-of-tree plugin for the DeepSeek Harness Web GUI that replaces the
+Trajectory tab with a **new-user-friendly storyline** view.
 
-- 按回合分组的卡片：你问了什么 → AI 怎么想 → 做了什么 → 结果如何
-- 工具名翻译成通俗中文 + 一句话说明，原始参数折叠进「详情」
-- 实时状态徽标（正在思考 / 正在运行工具 / 正在回复），不虚构耗时
-- 顶部搜索框定位某轮或某个工具；图例与空状态引导
-- 卸载即恢复原轨迹视图
+- Turn-grouped cards: what you asked → what the AI thought → what it did → the outcome
+- Tool names rendered as plain-language Chinese labels with one-line notes; raw arguments collapse into a Details toggle
+- Live status badge (thinking / running a tool / replying), never fabricates durations
+- A search box to jump to a turn or tool; a legend and an empty-state guide
+- Uninstalling restores the original trajectory view
 
-> 状态：规划完成，原型开发中。当前仅简体中文，发布版补英文。
+> Status: prototype and local verification complete; not yet published to npm.
+> Simplified Chinese only for v1; English localization comes with the release.
 
-## 目录
-
-- [docs/requirements.md](docs/requirements.md) — 痛点、目标/非目标、功能需求 FR-1…FR-11、验收标准 AC-1…AC-9、风险
-- [docs/design.md](docs/design.md) — UI 结构、数据源映射、节点渲染规则、工具映射表、包结构
-- [docs/plan.md](docs/plan.md) — 分阶段实施计划与验收清单
-
-## 快速开始（发布后）
+## Install
 
 ```sh
-dsh plugin --profile <你的 profile 名> add dsh-trail-bundle
+dsh plugin --profile web add dsh-trail dsh-trail-bundle
 ```
 
-## 许可
+(After npm publication these names resolve from the registry; before that,
+install from local paths: `dsh plugin --profile web add <plugin-dir> <bundle-dir>`.)
 
-MIT（随仓库初始化时落盘 LICENSE 文件）。
+## Supported versions
+
+- **dsh**: 0.1.0-rc.5 (the only release today; re-check the contracts below on upgrade)
+- **react**: ^18 (provided by the dsh web shell's platform module table; this plugin does not bundle react)
+
+Product contracts this plugin relies on (verify before upgrading dsh):
+
+1. The `id: 'trajectory'` cell of the `conversation.view` slot and its standard props (`useSession` / `sessionId`)
+2. Top-level session snapshot fields: `nodes`, `turnTimings`, `partial`, `runningCalls`, `hasMore`, `loadingOlder`, `openState` — these are product compatibility projections; the plugin must be upgraded if the product removes them
+3. The `sessions.binding(id).session.loadOlder()` paging action
+4. The `dsh.client` manifest and the `window.__ModuleLoader__` client-bundle contract
+
+## Docs
+
+- [docs/requirements.md](docs/requirements.md) — pain points, goals, functional requirements, acceptance criteria, risks (简体中文)
+- [docs/design.md](docs/design.md) — UI structure, data mapping, node rendering rules, tool label table, package layout (简体中文)
+- [docs/plan.md](docs/plan.md) — staged plan and verification checklist (简体中文)
+- [docs/releasing.md](docs/releasing.md) — release checklist
+
+## License
+
+MIT
