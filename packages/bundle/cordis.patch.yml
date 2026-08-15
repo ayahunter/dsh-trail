@@ -1,0 +1,12 @@
+# dsh-trail patch layer: mount the friendly trajectory view over the dsh web
+# surface. Applied after the dsh-web-app bundle; rows target by id.
+# Install: dsh plugin --profile <name> add dsh-trail-bundle
+
+- insert:
+    - id: dsh-trail
+      name: 'dsh-trail'
+
+# The friendly view takes the same `trajectory` cell; disabling the shipped
+# view avoids two registrants for one slot id.
+- id: ui-trajectory
+  disabled: true

@@ -1,0 +1,12 @@
+{
+  "name": "dsh-trail-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.7.0",
+  "scripts": {
+    "build": "pnpm --filter dsh-trail build",
+    "test": "pnpm --filter dsh-trail test",
+    "typecheck": "pnpm --filter dsh-trail typecheck"
+  }
+}
