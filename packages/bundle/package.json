@@ -13,6 +13,6 @@
     "cordis.patch.yml"
   ],
   "dependencies": {
-    "dsh-trail": "workspace:^"
+    "dsh-trail": "^0.1.0"
   }
 }
