@@ -1,6 +1,16 @@
 /** Pure trail model: structural node types plus grouping and text helpers. */
 import { toolLabel } from './tool-info'
 
+/** Row categories available to the trail filter. */
+export type TrailTone = 'user' | 'reply' | 'think' | 'tool' | 'success' | 'error' | 'system' | 'other'
+
+/** Stable category order used by rendering and persisted preferences. */
+export const TRAIL_TONES: readonly TrailTone[] = [
+  'user', 'reply', 'think', 'tool', 'success', 'error', 'system', 'other',
+]
+
+const TRAIL_TONE_SET = new Set<string>(TRAIL_TONES)
+
 /** One content block as far as the trail view cares. */
 export interface ContentBlockLike {
   type?: string
@@ -97,6 +107,69 @@ export function truncate(text: string, limit: number): string {
   return `${text.slice(0, limit)}…`
 }
 
+/** @returns whitespace-normalized single-line text, truncated when needed. */
+export function summaryText(text: string, limit: number): string {
+  return truncate(text.replace(/\s+/g, ' ').trim(), limit)
+}
+
+function compactSearchText(text: string): string {
+  return text.normalize('NFKC').toLocaleLowerCase().replace(/[\p{P}\p{S}\s]+/gu, '')
+}
+
+function isOrderedSubsequence(needle: string, haystack: string): boolean {
+  let index = 0
+  for (const char of haystack) {
+    if (char === needle[index]) index++
+    if (index === needle.length) return true
+  }
+  return false
+}
+
+/**
+ * Match every query term against one search document. Punctuation, whitespace,
+ * case and full-width forms are ignored; multi-character terms may match as an
+ * ordered subsequence.
+ */
+export function matchesSearchText(document: string, query: string): boolean {
+  const normalizedQuery = query.normalize('NFKC').toLocaleLowerCase().trim()
+  if (normalizedQuery === '') return true
+  const haystack = compactSearchText(document)
+  const terms = normalizedQuery.split(/\s+/).map(compactSearchText).filter(term => term !== '')
+  return terms.every((term) => {
+    if (haystack.includes(term)) return true
+    return term.length > 1 && isOrderedSubsequence(term, haystack)
+  })
+}
+
+/** Parse persisted category IDs, falling back to every category on bad data. */
+export function parseVisibleTones(raw: string | null): readonly TrailTone[] {
+  if (raw === null) return TRAIL_TONES
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return TRAIL_TONES
+  }
+  if (!Array.isArray(parsed)) return TRAIL_TONES
+  const tones: TrailTone[] = []
+  for (const value of parsed) {
+    if (typeof value !== 'string' || !TRAIL_TONE_SET.has(value)) continue
+    const tone = value as TrailTone
+    if (!tones.includes(tone)) tones.push(tone)
+  }
+  return tones.length === 0 ? TRAIL_TONES : tones
+}
+
+/** Derive the next non-empty category selection from one filter click. */
+export function toggleVisibleTone(current: ReadonlySet<TrailTone>, tone: TrailTone): readonly TrailTone[] {
+  if (current.size === TRAIL_TONES.length) return [tone]
+  if (current.size === 1 && current.has(tone)) return TRAIL_TONES
+  const next = new Set(current)
+  if (next.has(tone)) next.delete(tone)
+  else next.add(tone)
+  return TRAIL_TONES.filter(value => next.has(value))
+}
+
 /** @param ms - duration in milliseconds. @returns short Chinese duration. */
 export function fmtDuration(ms: number): string {
   const sec = Math.round(ms / 1000)
@@ -112,24 +185,47 @@ export function fmtTokens(n: number): string {
   return String(n)
 }
 
-/** @param node - one trail node. @returns searchable text summary. */
+/** @param block - assistant block. @returns full searchable text including hidden details. */
+export function assistantBlockText(block: TrailAssistantBlockLike): string {
+  if (block.kind === 'text') return `AI 回复 回复 assistant ${block.text ?? ''}`
+  if (block.kind === 'reasoning') return `AI 思考 思考 reasoning ${block.text ?? ''}`
+  if (block.kind === 'tool-call') {
+    const label = toolLabel(block.name)
+    return `工具调用 tool ${block.name ?? ''} ${label[0]} ${label[1]} ${block.argsRaw ?? ''}`
+  }
+  return `${block.kind} ${block.text ?? ''} ${block.name ?? ''} ${block.argsRaw ?? ''}`
+}
+
+function searchValue(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  return typeof value === 'string' ? value : String(value)
+}
+
+/** @param node - one trail node. @returns full searchable text including hidden details. */
 export function nodeText(node: TrailNode): string {
-  if (node.kind === 'user' || node.kind === 'steering' || node.kind === 'context') return textOfContent(node.content)
+  if (node.kind === 'user') return `你 用户 提问 user ${textOfContent(node.content)}`
+  if (node.kind === 'steering') return `你补充说 用户 补充 steering ${textOfContent(node.content)}`
+  if (node.kind === 'context') return `系统事件 注入上下文 context ${textOfContent(node.content)}`
   if (node.kind === 'assistant') {
     let out = ''
-    for (const block of node.blocks ?? []) {
-      if (block.kind === 'text' || block.kind === 'reasoning') out += `${block.text ?? ''} `
-      else if (block.kind === 'tool-call') out += `${block.name ?? ''} `
-    }
+    for (const block of node.blocks ?? []) out += `${assistantBlockText(block)} `
     return out
   }
   if (node.kind === 'tool-result') {
     const name = node.call !== null && node.call !== undefined && typeof node.call.name === 'string' ? node.call.name : ''
-    return `${name} ${textOfContent(node.content)}`
+    const argsRaw = node.call !== null && node.call !== undefined ? searchValue(node.call.argsRaw) : ''
+    const label = toolLabel(name === '' ? undefined : name)
+    return [
+      node.isError === true ? '错误结果 失败 error' : '成功结果 成功 success',
+      name, label[0], label[1], argsRaw, textOfContent(node.content),
+      searchValue(node.error?.name), searchValue(node.error?.code),
+    ].join(' ')
   }
-  if (node.kind === 'compaction') return node.summary ?? '历史压缩'
-  if (node.kind === 'turn-error') return node.message ?? '出错'
-  return ''
+  if (node.kind === 'compaction') return `系统事件 历史压缩 compaction ${node.summary ?? ''}`
+  if (node.kind === 'turn-error') return `错误结果 本轮出错 error ${node.message ?? ''} ${node.code ?? ''}`
+  if (node.kind === 'turn-max-tokens') return '系统事件 回复达到长度上限 turn max tokens'
+  if (node.kind === 'model-retry') return `系统事件 模型自动重试 model retry ${node.retryState ?? ''}`
+  return `其他 系统事件 ${node.kind}`
 }
 
 /**
@@ -163,13 +259,6 @@ export function buildRounds(nodes: readonly TrailNode[]): TrailRound[] {
     current.items.push(node)
   }
   return rounds
-}
-
-/** @param round - one round. @returns concatenated searchable text. */
-export function roundText(round: TrailRound): string {
-  let out = ''
-  for (const node of round.items) out += `${nodeText(node)} `
-  return out
 }
 
 /** @param round - one round. @returns first user question, or null. */
@@ -332,12 +421,7 @@ export function argPreview(name: string | undefined, argsRaw: string | undefined
       const found = firstString((parsed as Record<string, unknown>)[key])
       if (found !== null) return truncate(found, 60)
     }
+    if (Object.keys(parsed).length === 0) return ''
   }
   return truncate(argsRaw, 60)
-}
-
-/** @param text - result text. @returns first non-empty line, truncated. */
-export function firstLine(text: string): string | null {
-  const line = text.split('\n').map(part => part.trim()).find(part => part !== '')
-  return line === undefined ? null : truncate(line, 60)
 }

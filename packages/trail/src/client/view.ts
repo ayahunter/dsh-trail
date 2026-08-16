@@ -1,14 +1,15 @@
 /** Friendly trajectory view: turn-grouped storyline over the session snapshot. */
-import { createElement, useState } from 'react'
+import { createElement, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { toolLabel } from './tool-info'
 import {
-  argPreview, buildRounds, firstLine, firstUserText, fmtDuration, fmtTokens, liveRoundIndex,
-  liveStatus, roundMeta, roundText, textOfContent, truncate,
+  argPreview, assistantBlockText, buildRounds, firstUserText, fmtDuration, fmtTokens,
+  liveRoundIndex, liveStatus, matchesSearchText, nodeText, parseVisibleTones, roundMeta,
+  summaryText, textOfContent, toggleVisibleTone, TRAIL_TONES,
 } from './model'
 import type {
   TrailAssistantBlockLike, TrailNode, TrailRound, TrailRunningCallLike, TrailSnapshotLike,
-  TrailTurnTiming,
+  TrailTone, TrailTurnTiming,
 } from './model'
 
 /** Props the conversation view slot hands to this component. */
@@ -17,13 +18,30 @@ export interface TrailViewProps {
   loadOlder?: () => Promise<boolean>
 }
 
-type TrailTone = 'user' | 'reply' | 'think' | 'tool' | 'success' | 'error' | 'system' | 'other'
+interface TrailCategoryConfig {
+  tone: TrailTone
+  label: string
+  icon: string
+  searchAliases: readonly string[]
+}
+
+interface TrailFilter {
+  visibleTones: ReadonlySet<TrailTone>
+  query: string
+}
+
+interface TrailRenderContext {
+  expanded: ReadonlySet<string>
+  toggle: (key: string) => void
+  filter: TrailFilter
+}
 
 interface TrailRowOptions {
   key: string
   tone: TrailTone
   label?: string
   content: ReactNode
+  searchText: string
   action?: ReactNode
   detail?: ReactNode
   className?: string
@@ -33,8 +51,7 @@ interface RoundRenderOptions {
   round: TrailRound
   index: number
   turnTimings: ReadonlyMap<number, TrailTurnTiming> | undefined
-  expanded: ReadonlySet<string>
-  toggle: (key: string) => void
+  context: TrailRenderContext
   open: boolean
   toggleRound: () => void
   live: boolean
@@ -44,28 +61,43 @@ interface RoundRenderOptions {
 
 const EMPTY_NODES: readonly TrailNode[] = []
 const EMPTY_CALLS: readonly TrailRunningCallLike[] = []
+const FILTER_STORAGE_KEY = 'dsh-trail.visible-categories.v1'
 
-const ICONS: Readonly<Record<TrailTone, string>> = {
-  user: '💬',
-  reply: '🤖',
-  think: '🧠',
-  tool: '🔧',
-  success: '✓',
-  error: '✕',
-  system: 'i',
-  other: '⚙',
+const TRAIL_CATEGORIES: readonly TrailCategoryConfig[] = [
+  { tone: 'user', label: '你（用户）', icon: '💬', searchAliases: ['你', '用户', '提问'] },
+  { tone: 'reply', label: 'AI 回复', icon: '🤖', searchAliases: ['AI 回复', '回复', 'assistant'] },
+  { tone: 'think', label: 'AI 思考', icon: '🧠', searchAliases: ['AI 思考', '思考', 'reasoning'] },
+  { tone: 'tool', label: '工具调用', icon: '🛠️', searchAliases: ['工具调用', '工具', 'tool'] },
+  { tone: 'success', label: '成功结果', icon: '✅', searchAliases: ['成功结果', '成功', 'success'] },
+  { tone: 'error', label: '错误结果', icon: '✕', searchAliases: ['错误结果', '失败', 'error'] },
+  { tone: 'system', label: '系统事件', icon: 'i', searchAliases: ['系统事件', '系统', 'system'] },
+  { tone: 'other', label: '其他', icon: '⚙', searchAliases: ['其他', 'other'] },
+]
+
+function categoryFor(tone: TrailTone): TrailCategoryConfig {
+  return TRAIL_CATEGORIES.find(category => category.tone === tone) ?? TRAIL_CATEGORIES[7]!
 }
 
-const LEGEND_ITEMS: readonly { tone: TrailTone; label: string }[] = [
-  { tone: 'user', label: '你（用户）' },
-  { tone: 'reply', label: 'AI 回复' },
-  { tone: 'think', label: 'AI 思考' },
-  { tone: 'tool', label: '工具调用' },
-  { tone: 'success', label: '成功结果' },
-  { tone: 'error', label: '错误结果' },
-  { tone: 'system', label: '系统事件' },
-  { tone: 'other', label: '其他' },
-]
+function allVisibleTones(): Set<TrailTone> {
+  return new Set(TRAIL_TONES)
+}
+
+function loadVisibleTones(): Set<TrailTone> {
+  if (typeof window === 'undefined') return allVisibleTones()
+  try {
+    return new Set(parseVisibleTones(window.localStorage.getItem(FILTER_STORAGE_KEY)))
+  } catch {
+    return allVisibleTones()
+  }
+}
+
+function saveVisibleTones(tones: ReadonlySet<TrailTone>): void {
+  try {
+    window.localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(TRAIL_TONES.filter(tone => tones.has(tone))))
+  } catch {
+    // Storage may be unavailable in restricted browser contexts.
+  }
+}
 
 function roundDuration(turnTimings: ReadonlyMap<number, TrailTurnTiming> | undefined, turn: number | null): number | null {
   if (turn === null || turnTimings === undefined) return null
@@ -84,10 +116,17 @@ function renderIcon(tone: TrailTone): ReactNode {
   return createElement('span', {
     className: `tf-icon tf-icon-${tone}`,
     'aria-hidden': 'true',
-  }, ICONS[tone])
+  }, categoryFor(tone).icon)
 }
 
-function renderRow(options: TrailRowOptions): ReactNode {
+function rowMatches(options: TrailRowOptions, filter: TrailFilter): boolean {
+  if (!filter.visibleTones.has(options.tone)) return false
+  const aliases = categoryFor(options.tone).searchAliases.join(' ')
+  return matchesSearchText(`${aliases} ${options.searchText}`, filter.query)
+}
+
+function renderRow(options: TrailRowOptions, filter: TrailFilter): ReactNode | null {
+  if (!rowMatches(options, filter)) return null
   const copy: ReactNode[] = []
   if (options.label !== undefined) {
     copy.push(createElement('span', { key: 'label', className: 'tf-row-label' }, `${options.label}：`))
@@ -117,135 +156,132 @@ function renderStatus(label: string, tone: 'thinking' | 'running' | 'replying'):
     createElement('span', { className: 'tf-spinner', 'aria-hidden': 'true' }))
 }
 
-function renderAssistantBlock(
-  block: TrailAssistantBlockLike,
-  key: string,
-  expanded: ReadonlySet<string>,
-  toggle: (key: string) => void,
-): ReactNode | null {
+function renderAssistantBlock(block: TrailAssistantBlockLike, key: string, context: TrailRenderContext): ReactNode | null {
   if (block.kind === 'text') {
     const full = block.text ?? ''
     if (full.trim() === '') return null
-    const open = expanded.has(key)
-    const long = full.length > 300
+    const open = context.expanded.has(key)
+    const compact = summaryText(full, 180)
+    const long = summaryText(full, Number.MAX_SAFE_INTEGER).length > 180
     return renderRow({
       key,
       tone: 'reply',
       label: 'AI 回复',
-      content: open || !long ? full : truncate(full, 300),
-      action: long ? renderTextButton(open ? '收起' : '展开', () => { toggle(key) }, open) : undefined,
-    })
+      content: open ? full : compact,
+      searchText: assistantBlockText(block),
+      action: long ? renderTextButton(open ? '收起' : '展开', () => { context.toggle(key) }, open) : undefined,
+      className: open ? 'tf-row-expanded' : undefined,
+    }, context.filter)
   }
   if (block.kind === 'reasoning') {
     const full = block.text ?? ''
     if (full.trim() === '') return null
-    const open = expanded.has(key)
+    const open = context.expanded.has(key)
     return renderRow({
       key,
       tone: 'think',
       label: 'AI 思考',
-      content: open ? full : truncate(full, 60),
-      action: renderTextButton(open ? '收起' : '展开', () => { toggle(key) }, open),
-    })
+      content: open ? full : summaryText(full, 60),
+      searchText: assistantBlockText(block),
+      action: renderTextButton(open ? '收起' : '展开', () => { context.toggle(key) }, open),
+      className: open ? 'tf-row-expanded' : undefined,
+    }, context.filter)
   }
   if (block.kind === 'tool-call') {
     const label = toolLabel(block.name)
     const preview = argPreview(block.name, block.argsRaw)
-    const open = expanded.has(key)
+    const open = context.expanded.has(key)
+    const detail: string[] = []
+    if (label[1] !== '') detail.push(`说明：${label[1]}`)
+    detail.push(`参数：\n${typeof block.argsRaw === 'string' && block.argsRaw !== '' ? block.argsRaw : '（无参数）'}`)
     return renderRow({
       key,
       tone: 'tool',
-      content: createElement('span', null,
-        createElement('strong', null, `${label[0]}${preview === '' ? '' : ` ${preview}`}`),
-        label[1] === '' ? null : `：${label[1]}`),
-      action: renderTextButton(open ? '收起详情' : '详情', () => { toggle(key) }, open),
-      detail: open
-        ? createElement('pre', { className: 'tf-detail' }, typeof block.argsRaw === 'string' && block.argsRaw !== '' ? block.argsRaw : '（无参数）')
-        : undefined,
-    })
+      content: `${label[0]}${preview === '' ? '' : `：${preview}`}`,
+      searchText: assistantBlockText(block),
+      action: renderTextButton(open ? '收起详情' : '详情', () => { context.toggle(key) }, open),
+      detail: open ? createElement('pre', { className: 'tf-detail' }, detail.join('\n\n')) : undefined,
+    }, context.filter)
   }
   return block.kind === 'image'
-    ? renderRow({ key, tone: 'other', content: 'AI 生成了一张图片' })
-    : renderRow({ key, tone: 'other', content: '系统事件：其他内容' })
+    ? renderRow({ key, tone: 'other', content: 'AI 生成了一张图片', searchText: assistantBlockText(block) }, context.filter)
+    : renderRow({ key, tone: 'other', content: '系统事件：其他内容', searchText: assistantBlockText(block) }, context.filter)
 }
 
-function renderAssistantNode(
-  node: TrailNode,
-  baseKey: string,
-  expanded: ReadonlySet<string>,
-  toggle: (key: string) => void,
-): ReactNode {
+function renderAssistantNode(node: TrailNode, baseKey: string, context: TrailRenderContext): ReactNode | null {
   const rows: ReactNode[] = []
   const blocks = node.blocks ?? []
-  for (let b = 0; b < blocks.length; b++) {
-    const block = blocks[b]
-    const bKey = `${baseKey}_b${b}`
-    const row = renderAssistantBlock(block, bKey, expanded, toggle)
+  for (let index = 0; index < blocks.length; index++) {
+    const row = renderAssistantBlock(blocks[index]!, `${baseKey}_b${index}`, context)
     if (row !== null) rows.push(row)
   }
   if (node.interrupted) {
-    rows.push(renderRow({ key: `${baseKey}_stop`, tone: 'error', content: '已停止' }))
+    const row = renderRow({
+      key: `${baseKey}_stop`, tone: 'error', content: '已停止', searchText: '错误结果 已停止 interrupted',
+    }, context.filter)
+    if (row !== null) rows.push(row)
   }
-  return createElement('div', { key: baseKey, className: 'tf-node-group' }, rows)
+  return rows.length === 0 ? null : createElement('div', { key: baseKey, className: 'tf-node-group' }, rows)
 }
 
-function renderToolResultNode(
-  node: TrailNode,
-  baseKey: string,
-  expanded: ReadonlySet<string>,
-  toggle: (key: string) => void,
-): ReactNode {
+function toolResultDetail(node: TrailNode, note: string, argsRaw: string, result: string, duration: string | null): string {
+  const detail: string[] = []
+  if (note !== '') detail.push(`说明：${note}`)
+  detail.push(`参数：\n${argsRaw === '' ? '（无参数）' : argsRaw}`)
+  detail.push(`结果：\n${result === '' ? '（无文本结果）' : result}`)
+  if (duration !== null) detail.push(`耗时：${duration}`)
+  if (node.error !== null && node.error !== undefined) {
+    const code = node.error.code !== undefined && node.error.code !== null ? `（${String(node.error.code)}）` : ''
+    detail.push(`错误：${String(node.error.name ?? '')}${code}`)
+  }
+  return detail.join('\n\n')
+}
+
+function renderToolResultNode(node: TrailNode, baseKey: string, context: TrailRenderContext): ReactNode | null {
   const name = node.call !== null && typeof node.call === 'object' && typeof node.call.name === 'string'
     ? node.call.name
     : undefined
   const label = toolLabel(name)
-  const open = expanded.has(baseKey)
-  const preview = textOfContent(node.content)
-  const headline = firstLine(preview)
-  const callPreview = node.call !== null && typeof node.call === 'object' && typeof node.call.argsRaw === 'string'
-    ? argPreview(name, node.call.argsRaw)
+  const argsRaw = node.call !== null && typeof node.call === 'object' && typeof node.call.argsRaw === 'string'
+    ? node.call.argsRaw
     : ''
+  const callPreview = argPreview(name, argsRaw)
+  const result = textOfContent(node.content)
   const duration = typeof node.time === 'number' && typeof node.callTime === 'number'
     ? fmtDuration(node.time - node.callTime)
     : null
-  const detail: string[] = [preview === '' ? '（无文本结果）' : preview]
-  if (duration !== null) detail.push(`耗时：${duration}`)
-  if (node.error !== null && node.error !== undefined) {
-    detail.push(`错误：${String(node.error.name ?? '')}${node.error.code !== undefined && node.error.code !== null ? `（${String(node.error.code)}）` : ''}`)
-  }
+  const open = context.expanded.has(baseKey)
+  const detail = toolResultDetail(node, label[1], argsRaw, result, duration)
+  const action = renderTextButton(open ? '收起详情' : '详情', () => { context.toggle(baseKey) }, open)
   if (node.isError === true) {
-    const errName = node.error !== null && node.error !== undefined
+    const error = node.error !== null && node.error !== undefined
       ? ((node.error.name || node.error.code) ?? '未知错误')
       : '未知错误'
     return renderRow({
       key: baseKey,
       tone: 'error',
-      content: createElement('strong', null, `${label[0]} 出错：${String(errName)}`),
-      action: renderTextButton(open ? '收起详情' : '详情', () => { toggle(baseKey) }, open),
-      detail: open ? createElement('pre', { className: 'tf-detail' }, detail.join('\n')) : undefined,
-    })
+      content: `${label[0]}失败：${String(error)}`,
+      searchText: nodeText(node),
+      action,
+      detail: open ? createElement('pre', { className: 'tf-detail' }, detail) : undefined,
+    }, context.filter)
   }
   return renderRow({
     key: baseKey,
     tone: 'success',
-    content: createElement('span', null,
-      createElement('strong', null, `${label[0]} 完成${callPreview === '' ? '' : `：${callPreview}`}`),
-      headline === null ? null : createElement('span', { className: 'tf-inline-meta' }, ` · 预览第一行：${headline}`),
-      duration === null ? null : createElement('span', { className: 'tf-inline-meta' }, ` · 耗时 ${duration}`)),
-    action: renderTextButton(open ? '收起详情' : '详情', () => { toggle(baseKey) }, open),
-    detail: open ? createElement('pre', { className: 'tf-detail' }, detail.join('\n')) : undefined,
-  })
+    content: `${label[0]}成功${callPreview === '' ? '' : `：${callPreview}`}`,
+    searchText: nodeText(node),
+    action,
+    detail: open ? createElement('pre', { className: 'tf-detail' }, detail) : undefined,
+  }, context.filter)
 }
 
-function renderSystemNode(
-  node: TrailNode,
-  baseKey: string,
-  expanded: ReadonlySet<string>,
-  toggle: (key: string) => void,
-): ReactNode {
-  if (node.kind === 'context') return renderRow({ key: baseKey, tone: 'system', content: '注入了上下文信息' })
+function renderSystemNode(node: TrailNode, baseKey: string, context: TrailRenderContext): ReactNode | null {
+  if (node.kind === 'context') {
+    return renderRow({ key: baseKey, tone: 'system', content: '注入了上下文信息', searchText: nodeText(node) }, context.filter)
+  }
   if (node.kind === 'compaction') {
-    const open = expanded.has(baseKey)
+    const open = context.expanded.has(baseKey)
     const bits: string[] = []
     if (typeof node.shadowedItemCount === 'number') bits.push(`${node.shadowedItemCount} 条记录`)
     if (typeof node.shadowedTokenCount === 'number') bits.push(`${node.shadowedTokenCount} token`)
@@ -255,52 +291,54 @@ function renderSystemNode(
       content: createElement('span', null,
         '历史压缩，把之前的对话压缩成摘要，节省 token',
         bits.length === 0 ? null : createElement('span', { className: 'tf-inline-meta' }, `（${bits.join('、')}）`)),
+      searchText: nodeText(node),
       action: node.summary === null || node.summary === undefined
         ? undefined
-        : renderTextButton(open ? '收起摘要' : '摘要', () => { toggle(baseKey) }, open),
+        : renderTextButton(open ? '收起摘要' : '摘要', () => { context.toggle(baseKey) }, open),
       detail: open && node.summary !== null && node.summary !== undefined
         ? createElement('pre', { className: 'tf-detail' }, node.summary)
         : undefined,
-    })
+    }, context.filter)
   }
   if (node.kind === 'turn-error') {
     return renderRow({
       key: baseKey,
       tone: 'error',
-      content: createElement('strong', null,
-        `本轮出错：${node.message ?? '未知错误'}${typeof node.code === 'string' && node.code !== '' ? `（${node.code}）` : ''}`),
-    })
+      content: `本轮出错：${node.message ?? '未知错误'}${typeof node.code === 'string' && node.code !== '' ? `（${node.code}）` : ''}`,
+      searchText: nodeText(node),
+    }, context.filter)
   }
-  if (node.kind === 'turn-max-tokens') return renderRow({ key: baseKey, tone: 'system', content: '回复达到长度上限，被截断' })
-  if (node.kind === 'model-retry') return renderRow({ key: baseKey, tone: 'system', content: '模型请求失败，已自动重试' })
-  return renderRow({ key: baseKey, tone: 'other', content: `系统事件：其他（${String(node.kind)}）` })
+  if (node.kind === 'turn-max-tokens') {
+    return renderRow({ key: baseKey, tone: 'system', content: '回复达到长度上限，被截断', searchText: nodeText(node) }, context.filter)
+  }
+  if (node.kind === 'model-retry') {
+    return renderRow({ key: baseKey, tone: 'system', content: '模型请求失败，已自动重试', searchText: nodeText(node) }, context.filter)
+  }
+  return renderRow({
+    key: baseKey, tone: 'other', content: `系统事件：其他（${String(node.kind)}）`, searchText: nodeText(node),
+  }, context.filter)
 }
 
-function renderNode(node: TrailNode, index: number, expanded: ReadonlySet<string>, toggle: (key: string) => void): ReactNode {
+function renderNode(node: TrailNode, index: number, context: TrailRenderContext): ReactNode | null {
   const baseKey = `n${node.seq}_${index}`
-  if (node.kind === 'user') {
+  if (node.kind === 'user' || node.kind === 'steering') {
     const full = textOfContent(node.content)
-    const open = expanded.has(baseKey)
-    const long = full.length > 200
+    const open = context.expanded.has(baseKey)
+    const compact = summaryText(full, 120)
+    const long = summaryText(full, Number.MAX_SAFE_INTEGER).length > 120
     return renderRow({
       key: baseKey,
       tone: 'user',
-      label: '你',
-      content: createElement('strong', null, open || !long ? full : truncate(full, 200)),
-      action: long ? renderTextButton(open ? '收起' : '展开', () => { toggle(baseKey) }, open) : undefined,
-    })
+      label: node.kind === 'user' ? '你' : '你补充说',
+      content: open ? full : compact,
+      searchText: nodeText(node),
+      action: long ? renderTextButton(open ? '收起' : '展开', () => { context.toggle(baseKey) }, open) : undefined,
+      className: open ? 'tf-row-expanded' : undefined,
+    }, context.filter)
   }
-  if (node.kind === 'assistant') return renderAssistantNode(node, baseKey, expanded, toggle)
-  if (node.kind === 'tool-result') return renderToolResultNode(node, baseKey, expanded, toggle)
-  if (node.kind === 'steering') {
-    return renderRow({
-      key: baseKey,
-      tone: 'user',
-      label: '你补充说',
-      content: truncate(textOfContent(node.content), 200),
-    })
-  }
-  return renderSystemNode(node, baseKey, expanded, toggle)
+  if (node.kind === 'assistant') return renderAssistantNode(node, baseKey, context)
+  if (node.kind === 'tool-result') return renderToolResultNode(node, baseKey, context)
+  return renderSystemNode(node, baseKey, context)
 }
 
 function runningStatus(call: TrailRunningCallLike | undefined): string {
@@ -311,61 +349,64 @@ function runningStatus(call: TrailRunningCallLike | undefined): string {
 function renderLiveRows(
   partial: TrailSnapshotLike['partial'],
   runningCalls: readonly TrailRunningCallLike[],
+  filter: TrailFilter,
 ): ReactNode[] {
   const rows: ReactNode[] = []
   const representedCalls = new Set<number>()
   const blocks = partial?.blocks ?? []
-  for (let i = 0; i < blocks.length; i++) {
-    const block: TrailAssistantBlockLike = blocks[i]
+  for (let index = 0; index < blocks.length; index++) {
+    const block = blocks[index]!
+    let row: ReactNode | null = null
     if (block.kind === 'text' && (block.text ?? '').trim() !== '') {
-      rows.push(renderRow({
-        key: `live-text-${i}`,
+      row = renderRow({
+        key: `live-text-${index}`,
         tone: 'reply',
         label: 'AI 回复',
-        content: truncate(block.text ?? '', 300),
+        content: summaryText(block.text ?? '', 180),
+        searchText: assistantBlockText(block),
         action: renderStatus('生成中…', 'replying'),
-      }))
-      continue
-    }
-    if (block.kind === 'reasoning') {
-      rows.push(renderRow({
-        key: `live-reason-${i}`,
+      }, filter)
+    } else if (block.kind === 'reasoning') {
+      row = renderRow({
+        key: `live-reason-${index}`,
         tone: 'think',
         label: 'AI 思考',
-        content: truncate(block.text ?? '', 60),
+        content: summaryText(block.text ?? '', 60),
+        searchText: assistantBlockText(block),
         action: renderStatus('正在思考', 'thinking'),
-      }))
-      continue
-    }
-    if (block.kind === 'tool-call') {
+      }, filter)
+    } else if (block.kind === 'tool-call') {
       const label = toolLabel(block.name)
       const preview = argPreview(block.name, block.argsRaw)
       const callIndex = runningCalls.findIndex((call, runningIndex) => !representedCalls.has(runningIndex) && call.name === block.name)
       if (callIndex >= 0) representedCalls.add(callIndex)
-      rows.push(renderRow({
-        key: `live-tool-${i}`,
+      row = renderRow({
+        key: `live-tool-${index}`,
         tone: 'tool',
-        content: createElement('span', null,
-          createElement('strong', null, `${label[0]}${preview === '' ? '' : ` ${preview}`}`),
-          label[1] === '' ? null : `：${label[1]}`),
+        content: `${label[0]}${preview === '' ? '' : `：${preview}`}`,
+        searchText: assistantBlockText(block),
         action: renderStatus(runningStatus(callIndex < 0 ? undefined : runningCalls[callIndex]), 'running'),
-      }))
+      }, filter)
     }
+    if (row !== null) rows.push(row)
   }
-  for (let i = 0; i < runningCalls.length; i++) {
-    if (representedCalls.has(i)) continue
-    const call = runningCalls[i]
-    rows.push(renderRow({
-      key: `live-call-${i}`,
+  for (let index = 0; index < runningCalls.length; index++) {
+    if (representedCalls.has(index)) continue
+    const call = runningCalls[index]!
+    const label = toolLabel(call.name)
+    const row = renderRow({
+      key: `live-call-${index}`,
       tone: 'tool',
-      content: createElement('strong', null, toolLabel(call.name)[0]),
+      content: label[0],
+      searchText: `工具调用 tool ${call.name ?? ''} ${label[0]} ${label[1]}`,
       action: renderStatus(runningStatus(call), 'running'),
-    }))
+    }, filter)
+    if (row !== null) rows.push(row)
   }
   return rows
 }
 
-function renderRound(options: RoundRenderOptions): ReactNode {
+function renderRound(options: RoundRenderOptions): ReactNode | null {
   const meta = roundMeta(options.round)
   const duration = roundDuration(options.turnTimings, options.round.turn)
   const userText = firstUserText(options.round)
@@ -374,9 +415,14 @@ function renderRound(options: RoundRenderOptions): ReactNode {
   else if (duration !== null) metaBits.push(fmtDuration(duration))
   if (meta.model !== null) metaBits.push(meta.model)
   if (!options.live && meta.tokens !== null) metaBits.push(`${fmtTokens(meta.tokens)} token`)
+  const rows: ReactNode[] = []
+  for (let index = 0; index < options.round.items.length; index++) {
+    const row = renderNode(options.round.items[index]!, index, options.context)
+    if (row !== null) rows.push(row)
+  }
+  if (options.live) rows.push(...renderLiveRows(options.partial, options.runningCalls, options.context.filter))
+  if (rows.length === 0) return null
   const title = options.round.turn === null ? '开始' : `第 ${options.round.turn} 轮`
-  const rows: ReactNode[] = options.round.items.map((node, i) => renderNode(node, i, options.expanded, options.toggle))
-  if (options.live) rows.push(...renderLiveRows(options.partial, options.runningCalls))
   return createElement('section', {
     key: roundKey(options.round, options.index),
     className: `tf-round${options.live ? ' tf-live' : ''}`,
@@ -389,9 +435,9 @@ function renderRound(options: RoundRenderOptions): ReactNode {
   },
   createElement('span', { className: 'tf-round-summary' },
     createElement('span', { className: 'tf-turn-title' }, title),
-    userText === null ? null : createElement('span', { className: 'tf-turn-question' }, ` · 你问：${truncate(userText, 40)}`)),
+    userText === null ? null : createElement('span', { className: 'tf-turn-question' }, ` · 你问：${summaryText(userText, 40)}`)),
   metaBits.length === 0 ? null : createElement('span', { className: 'tf-round-meta' }, metaBits.join(' · ')),
-  createElement('span', { className: 'tf-chevron', 'aria-hidden': 'true' }, options.open ? '⌃' : '⌄')),
+  createElement('span', { className: `tf-chevron${options.open ? ' tf-chevron-open' : ''}`, 'aria-hidden': 'true' })),
   options.open ? createElement('div', { className: 'tf-round-body' }, rows) : null)
 }
 
@@ -399,51 +445,64 @@ function renderStandaloneLive(
   partial: TrailSnapshotLike['partial'],
   runningCalls: readonly TrailRunningCallLike[],
   status: ReturnType<typeof liveStatus>,
-): ReactNode {
+  filter: TrailFilter,
+): ReactNode | null {
+  const rows = renderLiveRows(partial, runningCalls, filter)
+  if (rows.length === 0) return null
   return createElement('section', { key: 'live', className: 'tf-round tf-live' },
     createElement('div', { className: 'tf-round-head tf-round-head-static' },
       createElement('span', { className: 'tf-round-summary' },
         createElement('span', { className: 'tf-turn-title' }, '正在进行的回合')),
       createElement('span', { className: 'tf-round-meta' }, '正在运行'),
       status === null ? null : renderStatus(status[0] + (status[1] === '' ? '' : `：${status[1]}`), 'running')),
-    createElement('div', { className: 'tf-round-body' }, renderLiveRows(partial, runningCalls)))
+    createElement('div', { className: 'tf-round-body' }, rows))
 }
 
 /** Session-scoped storyline view registered under the trajectory tab. */
 export function TrajectoryView(props: TrailViewProps): ReactNode {
   const { useSession } = props
-  const nodes = useSession(s => s.nodes ?? EMPTY_NODES)
-  const turnTimings = useSession(s => s.turnTimings)
-  const partial = useSession(s => s.partial)
-  const runningCalls = useSession(s => s.runningCalls ?? EMPTY_CALLS)
-  const hasMore = useSession(s => s.hasMore)
-  const loadingOlder = useSession(s => s.loadingOlder)
-  const openState = useSession(s => s.openState)
+  const nodes = useSession(snapshot => snapshot.nodes ?? EMPTY_NODES)
+  const turnTimings = useSession(snapshot => snapshot.turnTimings)
+  const partial = useSession(snapshot => snapshot.partial)
+  const runningCalls = useSession(snapshot => snapshot.runningCalls ?? EMPTY_CALLS)
+  const hasMore = useSession(snapshot => snapshot.hasMore)
+  const loadingOlder = useSession(snapshot => snapshot.loadingOlder)
+  const openState = useSession(snapshot => snapshot.openState)
 
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [roundOverrides, setRoundOverrides] = useState<Map<string, boolean>>(() => new Map())
   const [legendOpen, setLegendOpen] = useState(true)
   const [query, setQuery] = useState('')
+  const [visibleTones, setVisibleTones] = useState<Set<TrailTone>>(loadVisibleTones)
   const [paging, setPaging] = useState(false)
 
+  useEffect(() => { saveVisibleTones(visibleTones) }, [visibleTones])
+
   const toggle = (key: string): void => {
-    setExpanded((prev) => {
-      const next = new Set(prev)
+    setExpanded((previous) => {
+      const next = new Set(previous)
       if (next.has(key)) next.delete(key)
       else next.add(key)
       return next
     })
   }
 
+  const resetRoundOverrides = (): void => { setRoundOverrides(new Map()) }
+  const selectAllTones = (): void => {
+    setVisibleTones(allVisibleTones())
+    resetRoundOverrides()
+  }
+  const toggleTone = (tone: TrailTone): void => {
+    setVisibleTones(previous => new Set(toggleVisibleTone(previous, tone)))
+    resetRoundOverrides()
+  }
+
   const rounds = buildRounds(nodes)
-  const q = query.trim().toLowerCase()
-  const visibleRounds = rounds
-    .map((round, index) => ({ round, index }))
-    .filter(item => q === '' || roundText(item.round).toLowerCase().includes(q))
   const live = partial !== null || runningCalls.length > 0
   const liveIndex = liveRoundIndex(rounds.length, live)
-  const liveRoundVisible = liveIndex !== null && visibleRounds.some(item => item.index === liveIndex)
   const status = liveStatus(partial, runningCalls)
+  const narrowed = query.trim() !== '' || visibleTones.size !== TRAIL_TONES.length
+  const context: TrailRenderContext = { expanded, toggle, filter: { visibleTones, query } }
 
   const loadEarlier = (): void => {
     setPaging(true)
@@ -455,13 +514,16 @@ export function TrajectoryView(props: TrailViewProps): ReactNode {
     createElement('h2', { key: 'title', className: 'tf-title' }, '轨迹'),
     createElement('div', { key: 'top', className: 'tf-top' },
       createElement('label', { className: 'tf-search-field' },
-        createElement('span', { className: 'tf-search-icon', 'aria-hidden': 'true' }, '⌕'),
+        createElement('span', { className: 'tf-search-icon', 'aria-hidden': 'true' }),
         createElement('input', {
           type: 'search',
           className: 'tf-search',
           placeholder: '搜索轨迹…',
           value: query,
-          onChange: (event) => { setQuery(event.target.value) },
+          onChange: (event) => {
+            setQuery(event.target.value)
+            resetRoundOverrides()
+          },
           'aria-label': '搜索轨迹',
         })),
       createElement('button', {
@@ -470,14 +532,30 @@ export function TrajectoryView(props: TrailViewProps): ReactNode {
         onClick: () => { setLegendOpen(!legendOpen) },
         'aria-expanded': legendOpen,
       },
-      legendOpen ? '隐藏图例' : '显示图例',
-      createElement('span', { className: 'tf-button-chevron', 'aria-hidden': 'true' }, legendOpen ? '⌃' : '⌄'))),
+      legendOpen ? '隐藏筛选' : '显示筛选',
+      createElement('span', {
+        className: `tf-button-chevron${legendOpen ? ' tf-button-chevron-open' : ''}`,
+        'aria-hidden': 'true',
+      }))),
   ]
   if (legendOpen) {
-    children.push(createElement('div', { key: 'legend', className: 'tf-legend' },
-      LEGEND_ITEMS.map(item => createElement('span', { key: item.label, className: 'tf-legend-item' },
-        renderIcon(item.tone),
-        createElement('span', null, item.label)))))
+    const allSelected = visibleTones.size === TRAIL_TONES.length
+    children.push(createElement('div', {
+      key: 'legend', className: 'tf-legend', role: 'toolbar', 'aria-label': '筛选轨迹类别',
+    },
+    createElement('button', {
+      type: 'button',
+      className: `tf-filter${allSelected ? ' tf-filter-active' : ''}`,
+      onClick: selectAllTones,
+      'aria-pressed': allSelected,
+    }, '全部'),
+    TRAIL_CATEGORIES.map(category => createElement('button', {
+      key: category.tone,
+      type: 'button',
+      className: `tf-filter${visibleTones.has(category.tone) ? ' tf-filter-active' : ''}`,
+      onClick: () => { toggleTone(category.tone) },
+      'aria-pressed': visibleTones.has(category.tone),
+    }, renderIcon(category.tone), createElement('span', null, category.label)))))
   }
 
   const content: ReactNode[] = []
@@ -491,21 +569,22 @@ export function TrajectoryView(props: TrailViewProps): ReactNode {
       createElement('div', { className: 'tf-empty-title' }, '还没有轨迹。'),
       createElement('div', { className: 'tf-empty-copy' }, '给 AI 发一条消息，这里会记录完整的互动过程。')))
   } else {
-    for (const item of visibleRounds) {
-      const key = roundKey(item.round, item.index)
-      const isLive = item.index === liveIndex
-      const defaultOpen = item.index < 2 || isLive
+    let visibleRoundCount = 0
+    for (let index = 0; index < rounds.length; index++) {
+      const round = rounds[index]!
+      const key = roundKey(round, index)
+      const isLive = index === liveIndex
+      const defaultOpen = narrowed || index < 2 || isLive
       const open = roundOverrides.get(key) ?? defaultOpen
-      content.push(renderRound({
-        round: item.round,
-        index: item.index,
+      const rendered = renderRound({
+        round,
+        index,
         turnTimings,
-        expanded,
-        toggle,
+        context,
         open,
         toggleRound: () => {
-          setRoundOverrides((prev) => {
-            const next = new Map(prev)
+          setRoundOverrides((previous) => {
+            const next = new Map(previous)
             next.set(key, !(next.get(key) ?? defaultOpen))
             return next
           })
@@ -513,12 +592,23 @@ export function TrajectoryView(props: TrailViewProps): ReactNode {
         live: isLive,
         partial,
         runningCalls,
-      }))
+      })
+      if (rendered !== null) {
+        content.push(rendered)
+        visibleRoundCount++
+      }
     }
-    if (visibleRounds.length === 0) {
-      content.push(createElement('div', { key: 'nomatch', className: 'tf-loading' }, '没有找到相关内容'))
+    if (rounds.length === 0 && live) {
+      const rendered = renderStandaloneLive(partial, runningCalls, status, context.filter)
+      if (rendered !== null) {
+        content.push(rendered)
+        visibleRoundCount++
+      }
     }
-    if (live && !liveRoundVisible) content.push(renderStandaloneLive(partial, runningCalls, status))
+    if (visibleRoundCount === 0) {
+      content.push(createElement('div', { key: 'nomatch', className: 'tf-loading' },
+        query.trim() === '' ? '所选类别暂无轨迹' : '没有找到相关内容'))
+    }
     if (hasMore) {
       content.push(createElement('button', {
         key: 'more',

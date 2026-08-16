@@ -106,7 +106,7 @@ export const TRAIL_CSS = `
 }
 .tf-btn:hover { background: color-mix(in srgb, currentColor 5%, transparent); }
 .tf-btn:active { transform: translateY(1px); }
-.tf-btn:focus-visible, .tf-round-head:focus-visible {
+.tf-btn:focus-visible, .tf-round-head:focus-visible, .tf-filter:focus-visible {
   outline: 2px solid color-mix(in srgb, #6b82c8 72%, transparent);
   outline-offset: 2px;
 }
@@ -117,27 +117,67 @@ export const TRAIL_CSS = `
   padding: 0 12px;
 }
 .tf-button-chevron, .tf-chevron {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
   color: var(--tf-muted);
-  font-family: Arial, sans-serif;
-  font-weight: 700;
-  line-height: 1;
+  transition: transform 140ms ease;
+}
+.tf-button-chevron::before, .tf-chevron::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 1px;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+}
+.tf-button-chevron-open, .tf-chevron-open {
+  transform: rotate(180deg);
 }
 .tf-legend {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 20px;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
   min-width: 0;
-  padding: 0 10px;
+  padding: 0;
   margin-bottom: 30px;
 }
-.tf-legend-item {
+.tf-filter {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
   min-width: max-content;
-  font-weight: 600;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--tf-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
   white-space: nowrap;
+  transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease, transform 100ms ease;
+}
+.tf-filter:hover {
+  color: inherit;
+  background: color-mix(in srgb, currentColor 4%, transparent);
+}
+.tf-filter:active { transform: translateY(1px); }
+.tf-filter-active {
+  border-color: var(--tf-border);
+  background: color-mix(in srgb, currentColor 5%, transparent);
+  color: inherit;
+  font-weight: 600;
 }
 .tf-content {
   display: flex;
@@ -197,7 +237,7 @@ export const TRAIL_CSS = `
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tf-chevron { justify-self: end; font-size: 18px; }
+.tf-chevron { justify-self: end; }
 .tf-round-body {
   padding: 3px 0 8px;
   border-top: 1px solid var(--tf-border-soft);
@@ -208,9 +248,9 @@ export const TRAIL_CSS = `
   grid-template-columns: 28px minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 12px;
-  min-height: 50px;
-  padding: 6px 36px 6px 24px;
-  font-size: 18px;
+  min-height: 46px;
+  padding: 5px 36px 5px 24px;
+  font-size: 16px;
 }
 .tf-icon {
   display: inline-flex;
@@ -239,6 +279,10 @@ export const TRAIL_CSS = `
   background: transparent;
   font-size: 15px;
 }
+.tf-icon-tool, .tf-icon-success {
+  font-family: "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
+  font-weight: 400;
+}
 .tf-row-main { min-width: 0; }
 .tf-row-copy {
   min-width: 0;
@@ -249,6 +293,29 @@ export const TRAIL_CSS = `
 .tf-row-label { color: var(--tf-muted); }
 .tf-row-text { min-width: 0; }
 .tf-row-text strong { font-weight: 600; }
+.tf-row-reply {
+  color: inherit;
+  font-size: 18px;
+}
+.tf-row-reply .tf-row-label {
+  color: inherit;
+  font-weight: 700;
+}
+.tf-row-reply .tf-row-text { font-weight: 600; }
+.tf-row-user { font-size: 17px; }
+.tf-row-think, .tf-row-tool, .tf-row-success, .tf-row-system, .tf-row-other {
+  color: color-mix(in srgb, currentColor 76%, transparent);
+}
+.tf-row-tool .tf-row-text, .tf-row-success .tf-row-text { font-weight: 500; }
+.tf-row-expanded { align-items: start; }
+.tf-row-expanded .tf-icon, .tf-row-expanded .tf-row-action { margin-top: 2px; }
+.tf-row-expanded .tf-row-copy {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .tf-row-action {
   display: flex;
   align-items: center;
@@ -335,7 +402,8 @@ export const TRAIL_CSS = `
   .tf-legend-toggle { grid-column: 1; justify-self: end; }
   .tf-legend {
     justify-content: flex-start;
-    gap: 18px;
+    flex-wrap: nowrap;
+    gap: 8px;
     min-height: 34px;
     margin: 0 -16px 22px;
     padding: 4px 16px 8px;
@@ -357,8 +425,10 @@ export const TRAIL_CSS = `
     grid-template-columns: 28px minmax(0, 1fr);
     row-gap: 8px;
     padding: 8px 16px;
-    font-size: 16px;
+    font-size: 15px;
   }
+  .tf-row-reply { font-size: 16px; }
+  .tf-row-user { font-size: 15px; }
   .tf-row-action { grid-column: 2; min-width: 0; justify-content: flex-start; }
   .tf-row-btn { min-width: 72px; height: 34px; }
   .tf-row-copy { white-space: normal; }

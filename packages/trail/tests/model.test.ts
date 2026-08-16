@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  argPreview, buildRounds, firstLine, firstUserText, fmtDuration, fmtTokens, liveStatus,
-  liveRoundIndex, nodeText, roundMeta, textOfContent, truncate, usageSummary,
+  argPreview, assistantBlockText, buildRounds, firstUserText, fmtDuration, fmtTokens,
+  liveStatus, liveRoundIndex, matchesSearchText, nodeText, parseVisibleTones, roundMeta,
+  summaryText, textOfContent, toggleVisibleTone, TRAIL_TONES, truncate, usageSummary,
 } from '../src/client/model'
 import type { TrailAssistantBlockLike, TrailNode } from '../src/client/model'
 import { toolLabel } from '../src/client/tool-info'
@@ -87,7 +88,8 @@ describe('buildRounds', () => {
 
 describe('nodeText', () => {
   it('joins user content text blocks', () => {
-    expect(nodeText(user(1, '你好'))).toBe('你好')
+    expect(nodeText(user(1, '你好'))).toContain('你好')
+    expect(nodeText(user(1, '你好'))).toContain('用户')
   })
 
   it('collects assistant text, reasoning and tool names', () => {
@@ -96,11 +98,76 @@ describe('nodeText', () => {
       { kind: 'reasoning', text: '思路' },
       { kind: 'tool-call', name: 'grep', argsRaw: '{}' },
     ])
-    expect(nodeText(node)).toBe('答复 思路 grep ')
+    expect(nodeText(node)).toContain('答复')
+    expect(nodeText(node)).toContain('思路')
+    expect(nodeText(node)).toContain('grep')
+    expect(nodeText(node)).toContain('搜索内容')
   })
 
   it('prefixes tool results with the call name', () => {
-    expect(nodeText(toolResult(3, 'read'))).toBe('read ok')
+    expect(nodeText(toolResult(3, 'read'))).toContain('read')
+    expect(nodeText(toolResult(3, 'read'))).toContain('读取文件')
+    expect(nodeText(toolResult(3, 'read'))).toContain('ok')
+  })
+
+  it('indexes tool labels, descriptions, parameters and result details', () => {
+    const call: TrailAssistantBlockLike = {
+      kind: 'tool-call',
+      name: 'read',
+      argsRaw: JSON.stringify({ file_path: 'docs/hidden-design.md' }),
+    }
+    expect(matchesSearchText(assistantBlockText(call), '查看文件 hidden design')).toBe(true)
+
+    const result: TrailNode = {
+      kind: 'tool-result',
+      seq: 4,
+      call: { name: 'read', argsRaw: JSON.stringify({ file_path: 'docs/private.md' }) },
+      content: [{ type: 'text', text: '仅在详情出现的结果' }],
+      error: { name: 'AccessDenied', code: 'E403' },
+    }
+    expect(matchesSearchText(nodeText(result), 'private 详情结果 e403')).toBe(true)
+  })
+})
+
+describe('search matching', () => {
+  it('normalizes case, width, whitespace and punctuation', () => {
+    expect(matchesSearchText('执行命令：ＧＩＴ diff --stat', 'git-diff')).toBe(true)
+    expect(matchesSearchText('packages/trail/src/client/view.ts', 'packages trail view')).toBe(true)
+  })
+
+  it('supports ordered fuzzy matching and requires every term', () => {
+    expect(matchesSearchText('读取文件并检查内容', '读文内容')).toBe(true)
+    expect(matchesSearchText('TypeScript build passed', 'tspt build')).toBe(true)
+    expect(matchesSearchText('TypeScript build passed', 'tspt missing')).toBe(false)
+  })
+
+  it('does not use fuzzy subsequences for a single character', () => {
+    expect(matchesSearchText('AI 回复', '回')).toBe(true)
+    expect(matchesSearchText('AI 回复', '工')).toBe(false)
+  })
+
+  it('treats an empty query as a match', () => {
+    expect(matchesSearchText('任意内容', '  ')).toBe(true)
+  })
+})
+
+describe('visible tone preferences', () => {
+  it('loads unique known tones in stored order', () => {
+    expect(parseVisibleTones('["reply","invalid","reply","tool"]')).toEqual(['reply', 'tool'])
+  })
+
+  it('falls back to every tone for missing, malformed or empty data', () => {
+    expect(parseVisibleTones(null)).toEqual(TRAIL_TONES)
+    expect(parseVisibleTones('{bad json')).toEqual(TRAIL_TONES)
+    expect(parseVisibleTones('[]')).toEqual(TRAIL_TONES)
+    expect(parseVisibleTones('{"reply":true}')).toEqual(TRAIL_TONES)
+  })
+
+  it('isolates from all, combines categories and never leaves an empty set', () => {
+    expect(toggleVisibleTone(new Set(TRAIL_TONES), 'reply')).toEqual(['reply'])
+    expect(toggleVisibleTone(new Set(['reply']), 'tool')).toEqual(['reply', 'tool'])
+    expect(toggleVisibleTone(new Set(['reply', 'tool']), 'reply')).toEqual(['tool'])
+    expect(toggleVisibleTone(new Set(['tool']), 'tool')).toEqual(TRAIL_TONES)
   })
 })
 
@@ -119,6 +186,11 @@ describe('text helpers', () => {
   it('formats token counts compactly', () => {
     expect(fmtTokens(999)).toBe('999')
     expect(fmtTokens(1500)).toBe('1.5k')
+  })
+
+  it('creates a compact single-line summary', () => {
+    expect(summaryText('  第一行\n\n  第二行   内容  ', 10)).toBe('第一行 第二行 内容')
+    expect(summaryText('123456', 4)).toBe('1234…')
   })
 })
 
@@ -207,15 +279,6 @@ describe('argPreview', () => {
   it('handles empty input', () => {
     expect(argPreview('read', '')).toBe('')
     expect(argPreview(undefined, undefined)).toBe('')
-  })
-})
-
-describe('firstLine', () => {
-  it('returns the first non-empty line truncated', () => {
-    expect(firstLine('\n\n# 项目设计文档\n正文')).toBe('# 项目设计文档')
-  })
-
-  it('returns null for empty text', () => {
-    expect(firstLine('  \n ')).toBeNull()
+    expect(argPreview('get_goal', '{}')).toBe('')
   })
 })
