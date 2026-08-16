@@ -1,2 +1,7 @@
 node_modules/
 lib/
+# 内部工作文档（需求/设计/计划/发布清单，含本机路径；不随仓库发布）
+docs/requirements.md
+docs/design.md
+docs/plan.md
+docs/releasing.md
