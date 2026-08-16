@@ -1,14 +1,34 @@
 # dsh-trail
 
-一个 DeepSeek Harness Web 的 out-of-tree 插件：把「轨迹」页签替换为**新手友好**的故事线视图。
+> 一个 DeepSeek Harness Web 的 out-of-tree 插件：把「轨迹」页签替换为**新手友好**的故事线视图——原始事件表变成人人都能看懂的故事线。
 
-- 按回合分组的卡片：你问了什么 → AI 怎么想 → 做了什么 → 结果如何
-- 工具名翻译成通俗中文 + 一句话说明，原始参数折叠进「详情」
-- 实时状态徽标（正在思考 / 正在运行工具 / 正在回复），不虚构耗时
-- 顶部搜索框定位某轮或某个工具；图例与空状态引导
-- 卸载即恢复原轨迹视图
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-> 状态：原型与本机验证完成，npm 发布前。当前仅简体中文，发布版补英文。
+![截图](docs/screenshot.png)
+
+*更多截图：[回合视图](docs/screenshots/rounds-view.png) · [工具详情](docs/screenshots/tool-details.png)*
+
+## 为什么做这个插件（痛点）
+
+原版轨迹视图是为专家设计的工具，新手使用时有五个痛点：
+
+1. **术语不翻译、无解释**——Duration、Turns、Calls、TTFT、compaction 等术语原样呈现，全界面没有图例。
+2. **功能面过宽**——工具栏 5 个控件 + 可缩放/拖选的时间轴 + 独立检查器，认知负担大。
+3. **没有故事线**——「索引/事件/内容」三列表按事件罗列，回答不了"我问了什么 → AI 怎么想 → 做了什么 → 结果如何"。
+4. **中间过程是噪声**——思考内容、工具原始参数与回复正文同级并列，没有视觉层级。
+5. **无引导**——没有图例、没有说明文案、没有空状态教学。
+
+dsh-trail 用以下设计逐一解决。
+
+## 功能
+
+- **回合卡片**——每轮问答一张可折叠卡片：你问了什么 → AI 怎么想 → 调用了哪些工具 → 结果如何。
+- **工具名通俗中文化**——`read` 显示为「读取文件」+ 一句话说明；未知工具优雅回退。
+- **参数内联预览**——行内直接显示被操作的文件/命令，完整原始参数折叠进「详情」。
+- **类别筛选**——「全部」+ 八个类别按钮，选择跨会话记忆。
+- **模糊搜索**——忽略大小写、标点与全角形式，支持有序子序列匹配。
+- **进行中回合**——虚线卡片 + 状态胶囊（正在思考 / 生成中… / 正在运行 · Ns）+ 旋转动画；耗时从不虚构。
+- **零产品耦合**——只读会话快照顶层字段；卸载即恢复原视图。
 
 ## 安装
 
@@ -16,27 +36,28 @@
 dsh plugin --profile web add dsh-trail dsh-trail-bundle
 ```
 
-（npm 发布后可直接用包名；发布前可从本地路径安装：`dsh plugin --profile web add <插件包目录> <bundle 目录>`）
+bundle 会禁用原 `ui-trajectory` 行并在其位置挂载本视图，因此页签栏**只有一个「轨迹」**。
 
 ## 支持版本
 
-- **dsh**：0.1.0-rc.5（当前唯一版本；新版本需复核下述契约）
-- **react**：^18（由 dsh web 壳的平台模块表提供，本插件不打包 react）
+| 依赖 | 版本 |
+|---|---|
+| dsh | 0.1.0-rc.5（升级前需复核下述契约） |
+| react | ^18（由 dsh web 壳提供） |
 
-依赖的产品契约（升级 dsh 前先核对）：
+本插件依赖的产品契约：`conversation.view` 中 `id: 'trajectory'` 的格子与标准 props；顶层快照字段 `nodes` / `turnTimings` / `partial` / `runningCalls` / `hasMore` / `loadingOlder` / `openState`（兼容投影，产品若移除需同步升级本插件）；`sessions.binding(id).session.loadOlder()`；`dsh.client` 清单与 `window.__ModuleLoader__` 客户端 bundle 契约。
 
-1. `conversation.view` slot 的 `id: 'trajectory'` 格子与标准 props（`useSession`/`sessionId`）
-2. 顶层会话快照字段：`nodes` / `turnTimings` / `partial` / `runningCalls` / `hasMore` / `loadingOlder` / `openState`——这些是产品为兼容保留的投影字段，产品若移除本插件需同步升级
-3. `sessions.binding(id).session.loadOlder()` 分页动作
-4. `dsh.client` 清单 + `window.__ModuleLoader__` 客户端 bundle 契约
-
-## 目录
+## 文档
 
 - [docs/requirements.md](docs/requirements.md) — 痛点、目标/非目标、功能需求 FR-1…FR-11、验收标准 AC-1…AC-9、风险
 - [docs/design.md](docs/design.md) — UI 结构、数据源映射、节点渲染规则、工具映射表、包结构
 - [docs/plan.md](docs/plan.md) — 分阶段实施计划与验收清单
 - [docs/releasing.md](docs/releasing.md) — 发布清单
 
+## 状态
+
+Beta：v4 已通过人工视觉验收；npm 发布进行中。
+
 ## 许可
 
-MIT
+[MIT](LICENSE)
