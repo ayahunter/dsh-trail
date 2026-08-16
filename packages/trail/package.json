@@ -29,7 +29,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "node -e \"const f=require('node:fs');f.copyFileSync('../../README.md','README.md');f.copyFileSync('../../README.zh.md','README.zh.md')\""
   },
   "peerDependencies": {
     "react": "^18.0.0"

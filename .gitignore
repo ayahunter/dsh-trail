@@ -7,3 +7,6 @@ docs/plan.md
 docs/releasing.md
 # 架构可视化产物（本地生成，不随仓库发布）
 docs/architecture/
+# 发布时 prepack 从仓库根复制的包内 README（源在仓库根）
+packages/*/README.md
+packages/*/README.zh.md

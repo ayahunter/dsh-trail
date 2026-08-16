@@ -11,6 +11,8 @@
   内部工作文档（需求/设计/计划/发布清单）移出版本库，仅本地保留。
 - 补充更新说明：`dsh plugin --profile web update` 用法，及 pnpm registry 元数据
   缓存与 `minimumReleaseAge` 24 小时供应链策略对"发布后短期升级"的影响与对策。
+- npm 包补充 README：双包新增 `prepack` 脚本，发布时从仓库根复制 README 双语进包
+  （修复 npm 页面无 README）；bundle 与插件同步发布 0.1.1。
 
 ## [0.1.0] - 2026-08-16
 

@@ -1,6 +1,6 @@
 {
   "name": "dsh-trail-bundle",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Patch bundle that mounts dsh-trail and disables the shipped trajectory view.",
   "type": "module",
   "license": "MIT",
@@ -12,6 +12,9 @@
   "files": [
     "cordis.patch.yml"
   ],
+  "scripts": {
+    "prepack": "node -e \"const f=require('node:fs');f.copyFileSync('../../README.md','README.md');f.copyFileSync('../../README.zh.md','README.zh.md')\""
+  },
   "dependencies": {
     "dsh-trail": "^0.1.0"
   }
