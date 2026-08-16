@@ -5,3 +5,5 @@ docs/requirements.md
 docs/design.md
 docs/plan.md
 docs/releasing.md
+# 架构可视化产物（本地生成，不随仓库发布）
+docs/architecture/
