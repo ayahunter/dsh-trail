@@ -11,8 +11,8 @@ importers:
   packages/bundle:
     dependencies:
       dsh-trail:
-        specifier: workspace:^
-        version: link:../trail
+        specifier: ^0.1.0
+        version: 0.1.0(react@18.3.1)
 
   packages/trail:
     devDependencies:
@@ -346,6 +346,11 @@ packages:
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
+
+  dsh-trail@0.1.0:
+    resolution: {integrity: sha512-N9u5EpItVSmx5QC8BymuZWXIrzTDDJ0SsttPFEz0g2cLPSnRNl7zXKmV5+9BVmE0wt8HLAnBzH4hUP3Zg6pl/A==}
+    peerDependencies:
+      react: ^18.0.0
 
   dts-resolver@3.0.0:
     resolution: {integrity: sha512-1T1f+z+4tl9XD+m+0HBgWoL/nm0bOIffyWaUuUSBlFg/86IWvfx+wjNaO/ybU0AJzG9/Mi5hBUgGV6zCmWEN7Q==}
@@ -914,6 +919,10 @@ snapshots:
   defu@6.1.7: {}
 
   detect-libc@2.1.2: {}
+
+  dsh-trail@0.1.0(react@18.3.1):
+    dependencies:
+      react: 18.3.1
 
   dts-resolver@3.0.0: {}
 
