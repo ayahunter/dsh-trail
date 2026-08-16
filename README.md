@@ -1,48 +1,45 @@
 # dsh-trail
 
-> A new-user-friendly trajectory view for the DeepSeek Harness Web GUI: the
-> raw event ledger becomes a storyline anyone can read.
+**Friendly Trajectory** — a new-user-friendly replacement for the DeepSeek Harness Web
+"轨迹" (Trajectory) tab: the raw event ledger becomes a storyline anyone can read.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[中文](README.zh.md) · [Usage](docs/usage.md) · [Development](docs/development.md)
 
-![Screenshot](docs/screenshot.png)
-
-*More screenshots: [rounds view](docs/screenshots/rounds-view.png) ·
-[tool details](docs/screenshots/tool-details.png)*
-
-## Why
-
-The built-in trajectory view is a power tool. For a new user it hurts in
-exactly five ways:
-
-1. **Untranslated jargon** — `Duration`, `Turns`, `Calls`, TTFT, compaction,
-   with no legend anywhere.
-2. **Too many controls** — five toolbar toggles plus a zoomable/draggable
-   timeline and a separate inspector.
-3. **No storyline** — an index/event/content table lists events; it never
-   answers "what did I ask → what did the AI do → what came back".
-4. **Noise without hierarchy** — reasoning text, raw tool arguments and
-   replies sit on the same visual level.
-5. **No guidance** — no legend, no explanation, no empty-state teaching.
-
-dsh-trail replaces the trajectory tab with a design that resolves all five.
+The built-in trajectory view is a power tool: untranslated jargon with no legend, five
+toolbar toggles, a zoomable/draggable timeline, a separate inspector, and an event table
+that never answers "what did I ask → what did the AI do → what came back". `dsh-trail`
+replaces that tab with a storyline design — one collapsible card per round,
+plain-language tool names, inline argument previews, and guidance for every state. It
+reads only the session snapshot, adds no Host half, and uninstalling restores the
+original view.
 
 ## Features
 
-- **Turn cards** — one collapsible card per round: what you asked → what the
-  AI thought → which tools it called → the outcome.
-- **Plain-language tool labels** — `read` becomes *读取文件 (read a file)*
-  with a one-line note; unknown tools fall back gracefully.
-- **Inline argument previews** — the touched file or command is visible on
-  the row; full raw arguments fold into a Details toggle.
-- **Category filter** — 全部 (all) plus eight row categories, remembered
-  across sessions.
-- **Fuzzy search** — ignores case, punctuation and full-width forms; terms
+- **Turn cards** — one card per round: what you asked → what the AI thought → which
+  tools it called → the outcome, with duration, model and token meta when present.
+- **Plain-language tool labels** — `read` renders as *读取文件 (read a file)* with a
+  one-line note; unknown tools fall back gracefully.
+- **Inline argument previews** — the touched file or command is visible on the row;
+  raw arguments, results, timing and error metadata fold into a Details toggle.
+- **Category filter** — 全部 (all) plus eight row categories, combinable and
+  remembered across sessions.
+- **Fuzzy search** — ignores case, punctuation and full-width forms; multi-word terms
   match as ordered subsequences.
-- **Live round** — dashed card with status pills (thinking / generating /
-  running tool · elapsed) and a spinner; durations are never fabricated.
-- **Zero product coupling** — reads only top-level session snapshot fields;
-  uninstalling restores the original view.
+- **Live round** — dashed card with status pills (thinking / generating / running
+  tool · elapsed) and a spinner; durations are never fabricated.
+- **Zero product coupling** — renders purely from top-level session snapshot fields;
+  no Host half, no new data endpoints.
+
+## Screenshots
+
+The Friendly Trajectory view inside the official Web GUI — turn cards summarize each
+round, and reasoning, tool arguments and full replies stay folded until expanded:
+
+![Friendly Trajectory view](docs/screenshot.png)
+
+![Rounds view](docs/screenshots/rounds-view.png)
+
+![Tool details](docs/screenshots/tool-details.png)
 
 ## Install
 
@@ -50,37 +47,54 @@ dsh-trail replaces the trajectory tab with a design that resolves all five.
 dsh plugin --profile web add dsh-trail dsh-trail-bundle
 ```
 
-The bundle disables the shipped `ui-trajectory` row and mounts this view in
-its place, so exactly one 轨迹 tab remains.
+Restart the profile and open any session: the 轨迹 tab is now the storyline view. The
+bundle disables the shipped `ui-trajectory` row and mounts this view in its place, so
+exactly one 轨迹 tab remains.
 
-## Supported versions
+To go back to the original view:
 
-| Dependency | Version |
-|---|---|
-| dsh | 0.1.0-rc.5 (verify the contracts below on upgrade) |
-| react | ^18 (provided by the dsh web shell) |
+```sh
+dsh plugin --profile web remove dsh-trail dsh-trail-bundle
+```
 
-Product contracts this plugin relies on: the `conversation.view` slot cell
-`id: 'trajectory'` and its standard props; the top-level snapshot fields
-`nodes` / `turnTimings` / `partial` / `runningCalls` / `hasMore` /
-`loadingOlder` / `openState` (compatibility projections — the plugin must be
-upgraded if the product removes them); `sessions.binding(id).session.loadOlder()`;
-the `dsh.client` manifest and the `window.__ModuleLoader__` client-bundle
-contract.
+## Quick start
 
-## Docs
+Open a conversation and click 轨迹. Read it top-down as a story: expand any folded
+reasoning or reply with 展开, and open 详情 on a tool row for raw arguments, results,
+timing and tokens. Use the search box to jump to a file or command, and the category bar
+to isolate e.g. only 工具 rows — both stay applied while you browse.
 
-- [docs/requirements.md](docs/requirements.md) — pain points, goals, functional
-  requirements, acceptance criteria, risks (简体中文)
-- [docs/design.md](docs/design.md) — UI structure, data mapping, render rules,
-  tool label table, package layout (简体中文)
-- [docs/plan.md](docs/plan.md) — staged plan and verification checklist (简体中文)
-- [docs/releasing.md](docs/releasing.md) — release checklist
+## Architecture
 
-## Status
+One repository, two npm packages. `dsh-trail` is the client plugin: it registers the
+`conversation.view` slot cell `id: 'trajectory'` and renders purely from top-level
+session snapshot selectors (`nodes`, `turnTimings`, `partial`, `runningCalls`,
+`hasMore`, `loadingOlder`, `openState`). `dsh-trail-bundle` is a patch bundle whose
+`cordis.patch.yml` inserts the plugin row and sets `disabled: true` on the shipped
+`ui-trajectory` row. Design rationale is documented in the repository's internal
+working docs (not shipped with the package).
 
-Beta: v4 passed manual visual acceptance; npm publication in progress.
+## Known Limitations and Deferred Work
+
+- **Web GUI only** — the plugin targets the web shell (`react` ^18 peer dependency);
+  other shells are not validated.
+- **Simplified Chinese-first** — the v1 view copy (labels, tool names, guidance) is
+  简体中文; an English locale is deferred.
+- **Legacy snapshot fields** — the plugin reads compatibility projections
+  (`nodes`/`turnTimings`/`partial`/`runningCalls`/…), tested against dsh 0.1.0-rc.5;
+  it must be upgraded if the product removes those fields.
+- **Round grouping is heuristic** — `user`/`tool-result` nodes carry no turn number,
+  so round boundaries are inferred from node order and may occasionally be drawn wrong.
+- **Not feature-parity with the original view** — the timeline overview, duration
+  toggles and batch collapses are removed by design; the essentials fold into Details
+  and search is kept.
+
+## Documentation
+
+- [docs/usage.md](docs/usage.md) — install, what the view shows, filters and search,
+  uninstall
+- [docs/development.md](docs/development.md) — build, test, publish, contribute
 
 ## License
 
-[MIT](LICENSE)
+MIT — see [LICENSE](LICENSE).
