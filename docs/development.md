@@ -51,18 +51,36 @@ curl http://127.0.0.1:<port>/plugins/dsh-trail/client.js   # 200 + __ModuleLoade
 
 ## Publish
 
-Both packages are published from this workspace, plugin first:
+npm and GitHub are independent: the npm version exists the moment `pnpm publish`
+lands on the registry, while the GitHub version is the pushed code plus a tag (and
+an optional Release page). Prefer confirming the GitHub side first — published npm
+versions are effectively immutable.
+
+For a new version (e.g. 0.2.0):
+
+1. Bump `version` in both `packages/trail/package.json` and
+   `packages/bundle/package.json`; when the plugin changed, also sync the bundle's
+   `dsh-trail` dependency range (e.g. `^0.2.0`). Commit and push
+   (`chore(release): 0.2.0`).
+2. Run the gates (`pnpm typecheck && pnpm build && pnpm test`) and the isolated
+   smoke test above.
+3. Publish from this workspace, plugin first:
 
 ```sh
-cd packages/trail && pnpm pack --dry-run   # expect lib/client.js, lib/index.js, lib/index.d.ts
-cd ../bundle && pnpm pack --dry-run        # expect cordis.patch.yml and the dsh-trail dependency
-
-pnpm --filter dsh-trail publish
-pnpm --filter dsh-trail-bundle publish
+pnpm --filter dsh-trail publish --no-git-checks
+pnpm --filter dsh-trail-bundle publish --no-git-checks
 ```
 
 Keep the bundle's `dsh-trail` dependency range in sync with the published plugin
 version, and run the smoke test above in an isolated `DSH_HOME` after publishing.
+With 2FA enabled, publish prompts for a one-time code in the interactive terminal.
+
+4. Tag and optionally release on GitHub:
+
+```sh
+git tag v0.2.0 && git push origin v0.2.0
+gh release create v0.2.0 --notes "..."   # optional Release page
+```
 
 ## Contributing
 
