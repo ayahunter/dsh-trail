@@ -1,6 +1,6 @@
 {
   "name": "dsh-trail",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Replace the DeepSeek Harness Web trajectory view with a new-user-friendly storyline.",
   "type": "module",
   "license": "MIT",

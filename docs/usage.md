@@ -12,6 +12,19 @@ Restart the profile. The 轨迹 (Trajectory) tab in the Web GUI is now the story
 view; the bundle disables the shipped `ui-trajectory` row so exactly one 轨迹 tab
 remains.
 
+### Update
+
+```sh
+dsh plugin --profile web update dsh-trail dsh-trail-bundle
+```
+
+`update` forwards to `pnpm update` (within the saved semver range); upgrades are
+never automatic and the profile needs a restart. Shortly after a release, pnpm's
+registry metadata cache and its 24-hour `minimumReleaseAge` supply-chain policy can
+make `update` report "Already up to date" while npm already shows the new version —
+clear the cache (`pnpm cache delete dsh-trail`) or pin the version explicitly
+(`dsh plugin --profile web add dsh-trail@<version> dsh-trail-bundle`).
+
 ## What you see
 
 The view reads the conversation top-down as a story. One collapsible **turn card**

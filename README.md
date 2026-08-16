@@ -57,6 +57,19 @@ To go back to the original view:
 dsh plugin --profile web remove dsh-trail dsh-trail-bundle
 ```
 
+### Update
+
+```sh
+dsh plugin --profile web update dsh-trail dsh-trail-bundle
+```
+
+Upgrades are never applied automatically; restart the profile afterwards. Two pnpm
+behaviors can make an update look stale right after a release: the registry metadata
+cache and the 24-hour `minimumReleaseAge` supply-chain policy for freshly published
+versions. If `update` reports "Already up to date" while npm shows a newer version,
+clear the cache (`pnpm cache delete dsh-trail`) or pin explicitly
+(`dsh plugin --profile web add dsh-trail@<version> dsh-trail-bundle`).
+
 ## Quick start
 
 Open a conversation and click 轨迹. Read it top-down as a story: expand any folded

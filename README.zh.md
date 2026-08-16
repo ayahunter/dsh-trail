@@ -49,6 +49,18 @@ dsh plugin --profile web add dsh-trail dsh-trail-bundle
 dsh plugin --profile web remove dsh-trail dsh-trail-bundle
 ```
 
+### 更新
+
+```sh
+dsh plugin --profile web update dsh-trail dsh-trail-bundle
+```
+
+插件不会自动更新；更新后重启 profile。发布后短时间内更新可能"看似没生效"，是
+pnpm 的两个行为所致：registry 元数据缓存、以及针对新发布版本的 24 小时
+`minimumReleaseAge` 供应链策略。若 `update` 报 "Already up to date" 而 npm 已有
+更新版本，清缓存（`pnpm cache delete dsh-trail`）或显式指定版本
+（`dsh plugin --profile web add dsh-trail@<版本> dsh-trail-bundle`）。
+
 ## 快速开始
 
 打开会话，点击「轨迹」。自上而下像读故事一样阅读：用「展开」查看折叠的思考或回复，
